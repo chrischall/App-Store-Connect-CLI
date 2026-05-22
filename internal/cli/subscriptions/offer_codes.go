@@ -122,7 +122,7 @@ Examples:
 					return fmt.Errorf("subscriptions offer-codes list: %w", err)
 				}
 
-				return shared.PrintOutput(resp, *output.Output, *output.Pretty)
+				return printSubscriptionOfferCodesListOutput(resp, *output.Output, *output.Pretty)
 			}
 
 			resp, err := client.GetSubscriptionOfferCodes(requestCtx, id, opts...)
@@ -130,9 +130,45 @@ Examples:
 				return fmt.Errorf("subscriptions offer-codes list: failed to fetch: %w", err)
 			}
 
-			return shared.PrintOutput(resp, *output.Output, *output.Pretty)
+			return printSubscriptionOfferCodesListOutput(resp, *output.Output, *output.Pretty)
 		},
 	}
+}
+
+func printSubscriptionOfferCodesListOutput(data any, format string, pretty bool) error {
+	resp, ok := data.(*asc.SubscriptionOfferCodesResponse)
+	if !ok {
+		return shared.PrintOutput(data, format, pretty)
+	}
+	return shared.PrintOutputWithRenderers(
+		resp,
+		format,
+		pretty,
+		func() error {
+			if err := asc.PrintTable(resp); err != nil {
+				return err
+			}
+			printSubscriptionOfferCodesFollowUps(resp)
+			return nil
+		},
+		func() error {
+			return asc.PrintMarkdown(resp)
+		},
+	)
+}
+
+func printSubscriptionOfferCodesFollowUps(resp *asc.SubscriptionOfferCodesResponse) {
+	if resp == nil || len(resp.Data) == 0 {
+		return
+	}
+	id := strings.TrimSpace(resp.Data[0].ID)
+	if id == "" {
+		return
+	}
+	fmt.Fprintln(os.Stdout)
+	fmt.Fprintln(os.Stdout, "Follow-up commands:")
+	fmt.Fprintf(os.Stdout, "  asc subscriptions offers offer-codes one-time-codes list --offer-code-id %q\n", id)
+	fmt.Fprintln(os.Stdout, `  asc subscriptions offers offer-codes values --batch-id "ONE_TIME_USE_CODE_ID" --output "./offer-codes.csv" --format csv`)
 }
 
 // SubscriptionsOfferCodesGetCommand returns the offer codes get subcommand.

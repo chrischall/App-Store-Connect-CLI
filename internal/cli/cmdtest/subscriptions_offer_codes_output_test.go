@@ -637,6 +637,15 @@ func TestSubscriptionsOfferCodesListTableOutput(t *testing.T) {
 			t.Fatalf("expected table output to contain %q, got %q", want, stdout)
 		}
 	}
+	for _, want := range []string{
+		"Follow-up commands",
+		`asc subscriptions offers offer-codes one-time-codes list --offer-code-id "sub-code-table-1"`,
+		`asc subscriptions offers offer-codes values --batch-id "ONE_TIME_USE_CODE_ID" --output "./offer-codes.csv" --format csv`,
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected table output to contain follow-up hint %q, got %q", want, stdout)
+		}
+	}
 }
 
 func TestSubscriptionsOfferCodesListMarkdownOutput(t *testing.T) {
@@ -687,5 +696,8 @@ func TestSubscriptionsOfferCodesListMarkdownOutput(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "sub-code-md-1") {
 		t.Fatalf("expected markdown output to contain offer code id, got %q", stdout)
+	}
+	if strings.Contains(stdout, "Follow-up commands") {
+		t.Fatalf("expected markdown output without follow-up hints, got %q", stdout)
 	}
 }
