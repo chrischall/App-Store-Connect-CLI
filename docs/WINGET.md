@@ -1,6 +1,6 @@
 # WinGet Packaging
 
-This document captures the Windows Package Manager plan from
+This document captures the Windows Package Manager packaging flow from
 [GitHub Discussion #1552](https://github.com/rorkai/App-Store-Connect-CLI/discussions/1552).
 
 The goal is to make the common install command work:
@@ -17,7 +17,7 @@ winget install --id Rorkai.ASC --exact
 
 ## Package Identity
 
-Use this identity for the first `microsoft/winget-pkgs` submission:
+Use this identity for `microsoft/winget-pkgs` submissions:
 
 ```yaml
 PackageIdentifier: Rorkai.ASC
@@ -50,7 +50,7 @@ ManifestVersion: 1.6.0
 PackageIdentifier: Rorkai.ASC
 PackageVersion: 1.5.0
 PackageLocale: en-US
-Publisher: Rork
+Publisher: Rorkai
 PackageName: asc
 PackageUrl: https://github.com/rorkai/App-Store-Connect-CLI
 License: MIT
@@ -82,7 +82,44 @@ ManifestType: installer
 ManifestVersion: 1.6.0
 ```
 
-Use the SHA256 from `asc_<version>_checksums.txt` in the GitHub release.
+The release workflow generates these files with
+`scripts/generate_winget_manifests.py` using the SHA256 from
+`asc_<version>_checksums.txt`.
+
+## Release Automation
+
+`.github/workflows/release.yml` generates the WinGet manifests after the GitHub
+release and Homebrew tap update complete. It then opens or updates a PR against
+`microsoft/winget-pkgs`.
+
+Required release configuration:
+
+- `secrets.WINGET_GITHUB_TOKEN`: token that can create/use a fork of
+  `microsoft/winget-pkgs`, push branches to that fork, and open PRs against
+  `microsoft/winget-pkgs`.
+- `vars.WINGET_FORK_OWNER`: optional organization/user that owns the fork. When
+  unset, the workflow uses the authenticated token owner.
+
+The generated branch name is:
+
+```text
+rorkai-asc-<version>
+```
+
+The manifest path in `winget-pkgs` is:
+
+```text
+manifests/r/Rorkai/ASC/<version>/
+```
+
+To generate manifests locally for a release asset directory:
+
+```bash
+python3 scripts/generate_winget_manifests.py \
+  --version 1.5.0 \
+  --release-dir release \
+  --output-dir /tmp/asc-winget
+```
 
 ## Acceptance Check
 

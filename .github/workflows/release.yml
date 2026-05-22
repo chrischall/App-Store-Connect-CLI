@@ -176,3 +176,73 @@ jobs:
           git add Formula/asc.rb
           git commit -m "Update asc to ${VERSION}" || echo "No changes to commit"
           git push
+
+      - name: Generate WinGet manifests
+        run: |
+          python3 scripts/generate_winget_manifests.py \
+            --version "${VERSION}" \
+            --release-dir release \
+            --output-dir release/winget
+
+      - name: Upload WinGet manifests artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: winget-manifests-${{ env.VERSION }}
+          path: release/winget/manifests/r/Rorkai/ASC/${{ env.VERSION }}
+
+      - name: Submit WinGet package PR
+        env:
+          GH_TOKEN: ${{ secrets.WINGET_GITHUB_TOKEN }}
+          WINGET_FORK_OWNER: ${{ vars.WINGET_FORK_OWNER }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::WINGET_GITHUB_TOKEN not set; create a token that can fork/push to winget-pkgs and open PRs"
+            exit 1
+          fi
+
+          AUTH_LOGIN="$(gh api user --jq .login)"
+          if [ -z "$WINGET_FORK_OWNER" ]; then
+            WINGET_FORK_OWNER="${AUTH_LOGIN}"
+          fi
+
+          BRANCH="rorkai-asc-${VERSION}"
+          MANIFEST_SOURCE="${PWD}/release/winget/manifests/r/Rorkai/ASC/${VERSION}"
+
+          if ! gh repo view "${WINGET_FORK_OWNER}/winget-pkgs" >/dev/null 2>&1; then
+            if [ "${WINGET_FORK_OWNER}" = "${AUTH_LOGIN}" ]; then
+              gh repo fork microsoft/winget-pkgs --clone=false
+            else
+              gh repo fork microsoft/winget-pkgs --org "${WINGET_FORK_OWNER}" --clone=false
+            fi
+          fi
+
+          git clone --filter=blob:none --sparse "https://x-access-token:${GH_TOKEN}@github.com/${WINGET_FORK_OWNER}/winget-pkgs.git" winget-pkgs
+          cd winget-pkgs
+          git remote add upstream https://github.com/microsoft/winget-pkgs.git
+          git fetch upstream master --depth 1
+          git sparse-checkout set "manifests/r/Rorkai/ASC/${VERSION}"
+          git checkout -B "${BRANCH}" upstream/master
+
+          mkdir -p "manifests/r/Rorkai/ASC/${VERSION}"
+          cp "${MANIFEST_SOURCE}"/* "manifests/r/Rorkai/ASC/${VERSION}/"
+
+          git config user.name "Rorkai Release Bot"
+          git config user.email "release-bot@rork.com"
+          git add "manifests/r/Rorkai/ASC/${VERSION}"
+          if git diff --cached --quiet; then
+            echo "WinGet manifests for ${VERSION} are already up to date."
+          else
+            git commit -m "New package: Rorkai.ASC version ${VERSION}"
+            git push --force-with-lease origin "${BRANCH}"
+          fi
+
+          if gh pr list --repo microsoft/winget-pkgs --head "${WINGET_FORK_OWNER}:${BRANCH}" --json number --jq '.[0].number // empty' | grep -q .; then
+            echo "WinGet PR already exists for ${VERSION}."
+          else
+            gh pr create \
+              --repo microsoft/winget-pkgs \
+              --base master \
+              --head "${WINGET_FORK_OWNER}:${BRANCH}" \
+              --title "New package: Rorkai.ASC version ${VERSION}" \
+              --body "Adds Rorkai.ASC ${VERSION} from https://github.com/rorkai/App-Store-Connect-CLI/releases/tag/${VERSION}."
+          fi
