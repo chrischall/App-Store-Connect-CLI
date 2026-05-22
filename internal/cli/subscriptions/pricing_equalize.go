@@ -453,6 +453,9 @@ func normalizeEqualizeStartDate(value string) (string, time.Time, error) {
 	if err != nil {
 		return "", time.Time{}, err
 	}
+	if !parsed.After(dateOnlyUTC(equalizeNow())) {
+		return "", time.Time{}, shared.UsageError("--start-date must be a future date")
+	}
 	return normalized, parsed, nil
 }
 
