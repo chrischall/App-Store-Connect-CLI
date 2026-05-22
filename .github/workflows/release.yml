@@ -227,6 +227,10 @@ jobs:
           if [ -d manifests/r/Rorkai/ASC ] && find manifests/r/Rorkai/ASC -mindepth 1 -maxdepth 1 -type d | grep -q .; then
             PR_KIND="New version"
           fi
+          OPEN_PACKAGE_PRS="$(gh pr list --repo microsoft/winget-pkgs --state open --search "Rorkai.ASC in:title" --json number --jq 'length' || echo "0")"
+          if [ "${PR_KIND}" = "New package" ] && [ "${OPEN_PACKAGE_PRS}" != "0" ]; then
+            PR_KIND="New version"
+          fi
 
           mkdir -p "manifests/r/Rorkai/ASC/${VERSION}"
           cp "${MANIFEST_SOURCE}"/* "manifests/r/Rorkai/ASC/${VERSION}/"
