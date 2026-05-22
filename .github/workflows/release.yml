@@ -224,7 +224,7 @@ jobs:
           git checkout -B "${BRANCH}" upstream/master
 
           PR_KIND="New package"
-          if [ -d manifests/r/Rorkai/ASC ] && find manifests/r/Rorkai/ASC -mindepth 1 -maxdepth 1 -type d ! -name "${VERSION}" | grep -q .; then
+          if [ -d manifests/r/Rorkai/ASC ] && find manifests/r/Rorkai/ASC -mindepth 1 -maxdepth 1 -type d | grep -q .; then
             PR_KIND="New version"
           fi
 
