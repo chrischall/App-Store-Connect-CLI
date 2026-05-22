@@ -47,7 +47,7 @@ def checksum_for_asset(checksums_path: Path, asset_name: str) -> str:
 
     for line in checksums_path.read_text(encoding="utf-8").splitlines():
         parts = line.split()
-        if len(parts) >= 2 and parts[1] == asset_name:
+        if len(parts) >= 2 and parts[1].lstrip("*") == asset_name:
             return parts[0].upper()
     raise SystemExit(f"{asset_name} not found in {checksums_path}")
 

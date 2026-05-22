@@ -102,6 +102,33 @@ class WinGetManifestGenerationTest(unittest.TestCase):
                 installer,
             )
 
+    def test_generate_winget_manifests_accepts_binary_checksum_marker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            release = root / "release"
+            output = root / "winget"
+            release.mkdir()
+            (release / "asc_1.5.0_checksums.txt").write_text(
+                "130264eabdbba35073460eb33f342f9f4b6d93bfc9b173624a29efa1072bdb00 *asc_1.5.0_windows_amd64.exe\n",
+                encoding="utf-8",
+            )
+
+            generate_winget_manifests.generate("1.5.0", release, output)
+
+            installer = (
+                output
+                / "manifests"
+                / "r"
+                / "Rorkai"
+                / "ASC"
+                / "1.5.0"
+                / "Rorkai.ASC.installer.yaml"
+            ).read_text(encoding="utf-8")
+            self.assertIn(
+                "InstallerSha256: 130264EABDBBA35073460EB33F342F9F4B6D93BFC9B173624A29EFA1072BDB00",
+                installer,
+            )
+
 
 class WebsiteDocsChecksTest(unittest.TestCase):
     def test_website_docs_accept_valid_navigation_and_links(self) -> None:
