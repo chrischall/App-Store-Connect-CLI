@@ -41,13 +41,13 @@ jobs:
       - name: Verify package discovery
         shell: pwsh
         run: |
-          winget search $env:WINGET_COMMAND --source winget --disable-interactivity
+          winget search --moniker $env:WINGET_COMMAND --exact --source winget --disable-interactivity
           winget show --id $env:WINGET_PACKAGE_ID --exact --source winget --disable-interactivity
 
-      - name: Install by short command
+      - name: Install by exact moniker
         shell: pwsh
         run: |
-          winget install $env:WINGET_COMMAND --source winget --disable-interactivity --accept-source-agreements --accept-package-agreements
+          winget install --moniker $env:WINGET_COMMAND --exact --source winget --disable-interactivity --accept-source-agreements --accept-package-agreements
           winget list --id $env:WINGET_PACKAGE_ID --exact --source winget --disable-interactivity
           $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
           $resolved = Get-Command $env:WINGET_COMMAND -ErrorAction Stop
@@ -58,4 +58,4 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          winget uninstall --id $env:WINGET_PACKAGE_ID --exact --source winget --disable-interactivity --accept-source-agreements --accept-package-agreements
+          winget uninstall --id $env:WINGET_PACKAGE_ID --exact --source winget --disable-interactivity --accept-source-agreements

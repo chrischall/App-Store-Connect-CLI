@@ -220,8 +220,8 @@ jobs:
           cd winget-pkgs
           git remote add upstream https://github.com/microsoft/winget-pkgs.git
           git fetch upstream master --depth 1
-          git sparse-checkout set "manifests/r/Rorkai/ASC"
           git checkout -B "${BRANCH}" upstream/master
+          git sparse-checkout set "manifests/r/Rorkai/ASC"
 
           PR_KIND="New package"
           if [ -d manifests/r/Rorkai/ASC ] && find manifests/r/Rorkai/ASC -mindepth 1 -maxdepth 1 -type d | grep -q .; then
