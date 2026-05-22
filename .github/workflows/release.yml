@@ -220,6 +220,7 @@ jobs:
           cd winget-pkgs
           git remote add upstream https://github.com/microsoft/winget-pkgs.git
           git fetch upstream master --depth 1
+          git fetch origin "${BRANCH}:refs/remotes/origin/${BRANCH}" --depth 1 || true
           git checkout -B "${BRANCH}" upstream/master
           git sparse-checkout set "manifests/r/Rorkai/ASC"
 
