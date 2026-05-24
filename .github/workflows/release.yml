@@ -221,7 +221,11 @@ jobs:
           git remote add upstream https://github.com/microsoft/winget-pkgs.git
           git fetch upstream master --depth 1
           git fetch origin "${BRANCH}:refs/remotes/origin/${BRANCH}" --depth 1 || true
-          git checkout -B "${BRANCH}" upstream/master
+          if git show-ref --verify --quiet "refs/remotes/origin/${BRANCH}"; then
+            git checkout -B "${BRANCH}" "origin/${BRANCH}"
+          else
+            git checkout -B "${BRANCH}" upstream/master
+          fi
           git sparse-checkout set "manifests/r/Rorkai/ASC"
 
           PR_KIND="New package"
