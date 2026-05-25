@@ -184,6 +184,18 @@ asc builds list --app "123456789" --output table
 asc testflight groups list --app "123456789" --output table
 ```
 
+For macOS TestFlight distribution, upload the exported `.pkg` first, then add
+the processed build to a beta group:
+
+```bash
+asc builds upload --app "123456789" --pkg "./build/MyMacApp.pkg" --version "1.2.3" --build-number "42" --wait --output json
+asc publish testflight --app "123456789" --build "BUILD_ID" --platform MAC_OS --group "Internal Testers" --wait
+```
+
+`--app` is the App Store Connect app ID. If you use local Xcode build flags such
+as `--archive-path`, also pass exactly one of `--workspace` or `--project` plus
+`--scheme`; otherwise use a pre-exported `.ipa` or `.pkg` upload.
+
 ### Release (high-level App Store publish flow)
 
 ```bash
