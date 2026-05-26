@@ -14,6 +14,14 @@ import (
 	webcore "github.com/rudrankriyam/App-Store-Connect-CLI/internal/web"
 )
 
+type reviewIAPIAPListClient interface {
+	GetInAppPurchasesV2(ctx context.Context, appID string, opts ...asc.IAPOption) (*asc.InAppPurchasesV2Response, error)
+}
+
+var newReviewIAPASCClientFn = func() (reviewIAPIAPListClient, error) {
+	return shared.GetASCClient()
+}
+
 type reviewIAPMutationOutput struct {
 	AppID      string                      `json:"appId"`
 	IAPID      string                      `json:"iapId"`
@@ -50,6 +58,62 @@ func renderReviewIAPMutationTable(payload reviewIAPMutationOutput) error {
 func renderReviewIAPMutationMarkdown(payload reviewIAPMutationOutput) error {
 	headers := []string{"Section", "Field", "Value"}
 	asc.RenderMarkdown(headers, buildReviewIAPMutationRows(payload))
+	return nil
+}
+
+func validateReviewIAPAttachInputs(appID, iapID string, confirm bool) error {
+	switch {
+	case strings.TrimSpace(appID) == "":
+		return shared.UsageError("--app is required")
+	case shared.SelectorNeedsLookup(appID):
+		return shared.UsageError("--app must be a numeric App Store Connect app ID")
+	case strings.TrimSpace(iapID) == "":
+		return shared.UsageError("--iap-id is required")
+	case shared.SelectorNeedsLookup(iapID):
+		return shared.UsageError("--iap-id must be a numeric App Store Connect in-app purchase ID")
+	case !confirm:
+		return shared.UsageError("--confirm is required")
+	default:
+		return nil
+	}
+}
+
+func verifyReviewIAPBelongsToApp(ctx context.Context, client reviewIAPIAPListClient, appID, iapID string) error {
+	if client == nil {
+		return fmt.Errorf("app-scoped IAP verification client is required")
+	}
+
+	resp, err := client.GetInAppPurchasesV2(ctx, appID, asc.WithIAPLimit(200))
+	if err != nil {
+		return fmt.Errorf("verify in-app purchase %q under app %q: %w", iapID, appID, err)
+	}
+
+	found := false
+	if err := asc.PaginateEach(
+		ctx,
+		resp,
+		func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
+			return client.GetInAppPurchasesV2(ctx, appID, asc.WithIAPNextURL(nextURL))
+		},
+		func(page asc.PaginatedResponse) error {
+			iaps, ok := page.(*asc.InAppPurchasesV2Response)
+			if !ok {
+				return fmt.Errorf("unexpected in-app purchases pagination type %T", page)
+			}
+			for _, iap := range iaps.Data {
+				if strings.TrimSpace(iap.ID) == iapID {
+					found = true
+					return nil
+				}
+			}
+			return nil
+		},
+	); err != nil {
+		return fmt.Errorf("verify in-app purchase %q under app %q: %w", iapID, appID, err)
+	}
+	if !found {
+		return fmt.Errorf("in-app purchase %q was not found under app %q; refusing to attach", iapID, appID)
+	}
 	return nil
 }
 
@@ -91,17 +155,10 @@ submitWithNextAppStoreVersion=true; this command exposes that same call.
 
 // WebReviewIAPsAttachCommand attaches a non-renewing IAP to the next app
 // version review via the private iris endpoint.
-//
-// The iris attach call itself accepts only the IAP ID — non-renewing IAPs are
-// globally addressable within a developer account, unlike subscriptions which
-// are grouped. --app is still required here for symmetry with
-// `asc web review subscriptions attach` and so the JSON payload and error
-// messages carry app context. A future ListReviewIAPs helper would let us
-// pre-verify the IAP's state (READY_TO_SUBMIT etc.) the way subscriptions does.
 func WebReviewIAPsAttachCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("web review iaps attach", flag.ExitOnError)
 
-	appID := fs.String("app", "", "App ID (used for output and error context)")
+	appID := fs.String("app", "", "App ID")
 	iapID := fs.String("iap-id", "", "Non-renewing IAP ID")
 	confirm := fs.Bool("confirm", false, "Confirm the attach operation")
 	authFlags := bindWebSessionFlags(fs)
@@ -116,17 +173,20 @@ func WebReviewIAPsAttachCommand() *ffcli.Command {
 		Exec: func(ctx context.Context, args []string) error {
 			trimmedAppID := strings.TrimSpace(*appID)
 			trimmedIAPID := strings.TrimSpace(*iapID)
-			switch {
-			case trimmedAppID == "":
-				return shared.UsageError("--app is required")
-			case trimmedIAPID == "":
-				return shared.UsageError("--iap-id is required")
-			case !*confirm:
-				return shared.UsageError("--confirm is required")
+			if err := validateReviewIAPAttachInputs(trimmedAppID, trimmedIAPID, *confirm); err != nil {
+				return err
 			}
 
 			requestCtx, cancel := shared.ContextWithTimeout(ctx)
 			defer cancel()
+
+			ascClient, err := newReviewIAPASCClientFn()
+			if err != nil {
+				return fmt.Errorf("web review iaps attach: app-scoped IAP verification requires App Store Connect API credentials: %w", err)
+			}
+			if err := verifyReviewIAPBelongsToApp(requestCtx, ascClient, trimmedAppID, trimmedIAPID); err != nil {
+				return fmt.Errorf("web review iaps attach: %w", err)
+			}
 
 			session, err := resolveWebSessionForCommand(requestCtx, authFlags)
 			if err != nil {
