@@ -222,6 +222,75 @@ func TestWebReviewIAPsAttachVerifiesIAPBelongsToAppBeforeMutating(t *testing.T) 
 	}
 }
 
+func TestWebReviewIAPsAttachSkipsAlreadyAttachedIAP(t *testing.T) {
+	_ = stubWebProgressLabels(t)
+
+	origResolveSession := resolveSessionFn
+	t.Cleanup(func() {
+		resolveSessionFn = origResolveSession
+	})
+
+	resolveSessionFn = func(ctx context.Context, appleID, password, twoFactorCode string) (*webcore.AuthSession, string, error) {
+		return &webcore.AuthSession{
+			Client: &http.Client{
+				Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+					if req.Method != http.MethodGet || req.URL.Path != "/iris/v1/apps/123456789/inAppPurchases" {
+						t.Fatalf("unexpected request for already-attached IAP: %s %s", req.Method, req.URL.Path)
+					}
+					return &http.Response{
+						StatusCode: http.StatusOK,
+						Header:     http.Header{"Content-Type": []string{"application/json"}},
+						Body: io.NopCloser(strings.NewReader(`{
+							"data": [{
+								"type": "inAppPurchases",
+								"id": "9000000001",
+								"attributes": {
+									"name": "Remove Ads",
+									"productId": "com.example.removeads",
+									"inAppPurchaseType": "NON_CONSUMABLE",
+									"state": "READY_TO_SUBMIT",
+									"submitWithNextAppStoreVersion": true
+								}
+							}]
+						}`)),
+						Request: req,
+					}, nil
+				}),
+			},
+		}, "cache", nil
+	}
+
+	cmd := WebReviewIAPsAttachCommand()
+	if err := cmd.FlagSet.Parse([]string{
+		"--app", "123456789",
+		"--iap-id", "9000000001",
+		"--confirm",
+		"--output", "json",
+	}); err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	stdout, _ := captureOutput(t, func() {
+		if err := cmd.Exec(context.Background(), nil); err != nil {
+			t.Fatalf("exec error: %v", err)
+		}
+	})
+
+	var payload reviewIAPMutationOutput
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatalf("failed to parse stdout JSON: %v\nstdout=%s", err, stdout)
+	}
+	if payload.AppID != "123456789" || payload.IAPID != "9000000001" || payload.Operation != "attach" {
+		t.Fatalf("unexpected mutation output: %#v", payload)
+	}
+	if payload.Changed {
+		t.Fatalf("expected already-attached IAP to report changed=false, got %#v", payload)
+	}
+	if payload.Submission.ID != "" || payload.Submission.InAppPurchaseID != "9000000001" || !payload.Submission.SubmitWithNextAppStoreVersion {
+		t.Fatalf("unexpected idempotent submission output: %#v", payload.Submission)
+	}
+}
+
 func TestWebReviewIAPsAttachRefusesIAPOutsideApp(t *testing.T) {
 	origResolveSession := resolveSessionFn
 	t.Cleanup(func() {

@@ -74,19 +74,19 @@ func validateReviewIAPAttachInputs(appID, iapID string, confirm bool) error {
 	}
 }
 
-func verifyReviewIAPBelongsToApp(ctx context.Context, client reviewIAPFinder, appID, iapID string) error {
+func verifyReviewIAPBelongsToApp(ctx context.Context, client reviewIAPFinder, appID, iapID string) (webcore.ReviewIAP, error) {
 	if client == nil {
-		return fmt.Errorf("app-scoped IAP verification client is required")
+		return webcore.ReviewIAP{}, fmt.Errorf("app-scoped IAP verification client is required")
 	}
 
-	_, found, err := client.FindReviewIAP(ctx, appID, iapID)
+	iap, found, err := client.FindReviewIAP(ctx, appID, iapID)
 	if err != nil {
-		return fmt.Errorf("verify in-app purchase %q under app %q: %w", iapID, appID, err)
+		return webcore.ReviewIAP{}, fmt.Errorf("verify in-app purchase %q under app %q: %w", iapID, appID, err)
 	}
 	if !found {
-		return fmt.Errorf("in-app purchase %q was not found under app %q; refusing to attach", iapID, appID)
+		return webcore.ReviewIAP{}, fmt.Errorf("in-app purchase %q was not found under app %q; refusing to attach", iapID, appID)
 	}
-	return nil
+	return iap, nil
 }
 
 // WebReviewIAPsCommand groups iris-API operations that attach a non-renewing
@@ -158,8 +158,28 @@ func WebReviewIAPsAttachCommand() *ffcli.Command {
 			}
 			client := newWebClientFn(session)
 
-			if err := verifyReviewIAPBelongsToApp(requestCtx, client, trimmedAppID, trimmedIAPID); err != nil {
+			reviewIAP, err := verifyReviewIAPBelongsToApp(requestCtx, client, trimmedAppID, trimmedIAPID)
+			if err != nil {
 				return fmt.Errorf("web review iaps attach: %w", err)
+			}
+			if reviewIAP.SubmitWithNextAppStoreVersion {
+				payload := reviewIAPMutationOutput{
+					AppID:     trimmedAppID,
+					IAPID:     trimmedIAPID,
+					Operation: "attach",
+					Changed:   false,
+					Submission: webcore.ReviewIAPSubmission{
+						InAppPurchaseID:               trimmedIAPID,
+						SubmitWithNextAppStoreVersion: true,
+					},
+				}
+				return shared.PrintOutputWithRenderers(
+					payload,
+					*output.Output,
+					*output.Pretty,
+					func() error { return renderReviewIAPMutationTable(payload) },
+					func() error { return renderReviewIAPMutationMarkdown(payload) },
+				)
 			}
 
 			submission, err := withWebSpinnerValue("Attaching IAP to next app version", func() (webcore.ReviewIAPSubmission, error) {
