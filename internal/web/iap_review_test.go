@@ -103,6 +103,65 @@ func TestFindReviewIAPMatchesByProductID(t *testing.T) {
 	}
 }
 
+func TestFindReviewIAPMatchesMaxBinRedactedSchema(t *testing.T) {
+	const (
+		publicASCIAPID = "1234567890"
+		irisResourceID = "ae6d89d7-15c5-4a3d-9041-663a4d40638e"
+		productID      = "com.example.app.pro.lifetime"
+	)
+
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if r.URL.Path != "/apps/app-123/inAppPurchases" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("fields[inAppPurchases]"); got != reviewIAPFields {
+			t.Fatalf("expected iris-safe fields %q, got %q", reviewIAPFields, got)
+		}
+		if got := r.URL.Query().Get("sort"); got != "referenceName" {
+			t.Fatalf("expected sort=referenceName, got %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"data": [{
+				"id": "` + irisResourceID + `",
+				"type": "inAppPurchases",
+				"attributes": {
+					"productId": "` + productID + `",
+					"referenceName": "Pro Lifetime",
+					"state": "READY_TO_SUBMIT"
+				}
+			}],
+			"links": {"next": ""}
+		}`))
+	}))
+	defer server.Close()
+
+	client := testWebClient(server)
+	got, found, err := client.FindReviewIAP(context.Background(), "app-123", productID)
+	if err != nil {
+		t.Fatalf("FindReviewIAP(productID) error = %v", err)
+	}
+	if !found {
+		t.Fatal("expected IAP to be found by bundle-style productId")
+	}
+	if got.ID != irisResourceID || got.ProductID != productID || got.ReferenceName != "Pro Lifetime" {
+		t.Fatalf("unexpected IAP payload: %#v", got)
+	}
+
+	_, found, err = client.FindReviewIAP(context.Background(), "app-123", publicASCIAPID)
+	if err != nil {
+		t.Fatalf("FindReviewIAP(public numeric id) error = %v", err)
+	}
+	if found {
+		t.Fatalf("public numeric ASC IAP id %q must not match Iris schema that only exposes id=%q and productId=%q", publicASCIAPID, irisResourceID, productID)
+	}
+	if requests != 2 {
+		t.Fatalf("expected two lookup requests, got %d", requests)
+	}
+}
+
 func TestFindReviewIAPStopsAfterMatchingPage(t *testing.T) {
 	calls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

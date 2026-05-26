@@ -307,6 +307,71 @@ func TestWebReviewIAPsAttachTreatsAlreadyAttachedConflictAsNoChange(t *testing.T
 	}
 }
 
+func TestWebReviewIAPsAttachRejectsMatchedIAPWithoutIrisResourceID(t *testing.T) {
+	_ = stubWebProgressLabels(t)
+
+	origResolveSession := resolveSessionFn
+	t.Cleanup(func() {
+		resolveSessionFn = origResolveSession
+	})
+
+	resolveSessionFn = func(ctx context.Context, appleID, password, twoFactorCode string) (*webcore.AuthSession, string, error) {
+		return &webcore.AuthSession{
+			Client: &http.Client{
+				Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+					switch {
+					case req.Method == http.MethodGet && req.URL.Path == "/iris/v1/apps/123456789/inAppPurchases":
+						return &http.Response{
+							StatusCode: http.StatusOK,
+							Header:     http.Header{"Content-Type": []string{"application/json"}},
+							Body: io.NopCloser(strings.NewReader(`{
+								"data": [{
+									"type": "inAppPurchases",
+									"id": "   ",
+									"attributes": {
+										"productId": "com.example.lifetime",
+										"referenceName": "Lifetime",
+										"state": "READY_TO_SUBMIT"
+									}
+								}]
+							}`)),
+							Request: req,
+						}, nil
+					case req.Method == http.MethodPost && req.URL.Path == "/iris/v1/inAppPurchaseSubmissions":
+						t.Fatal("attach POST must not run when the matched IAP has no iris resource id")
+						return nil, nil
+					default:
+						t.Fatalf("unexpected request: %s %s", req.Method, req.URL.Path)
+						return nil, nil
+					}
+				}),
+			},
+		}, "cache", nil
+	}
+
+	cmd := WebReviewIAPsAttachCommand()
+	if err := cmd.FlagSet.Parse([]string{
+		"--app", "123456789",
+		"--iap-id", "com.example.lifetime",
+		"--confirm",
+	}); err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	_, stderr := captureOutput(t, func() {
+		err := cmd.Exec(context.Background(), nil)
+		if err == nil {
+			t.Fatal("expected missing iris id error, got nil")
+		}
+		if !strings.Contains(err.Error(), "missing an iris resource id") {
+			t.Fatalf("expected missing iris id error, got %v", err)
+		}
+	})
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
+	}
+}
+
 func TestWebReviewIAPsAttachVerifiesIAPBelongsToAppBeforeMutating(t *testing.T) {
 	_ = stubWebProgressLabels(t)
 

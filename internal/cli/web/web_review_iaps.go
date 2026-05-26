@@ -84,6 +84,9 @@ func verifyReviewIAPBelongsToApp(ctx context.Context, client reviewIAPFinder, ap
 	if !found {
 		return webcore.ReviewIAP{}, fmt.Errorf("in-app purchase %q was not found under app %q; refusing to attach", iapID, appID)
 	}
+	if strings.TrimSpace(iap.ID) == "" {
+		return webcore.ReviewIAP{}, fmt.Errorf("in-app purchase %q under app %q is missing an iris resource id; refusing to attach", iapID, appID)
+	}
 	return iap, nil
 }
 
@@ -129,7 +132,7 @@ func WebReviewIAPsAttachCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("web review iaps attach", flag.ExitOnError)
 
 	appID := fs.String("app", "", "App ID")
-	iapID := fs.String("iap-id", "", "Iris IAP UUID or product ID")
+	iapID := fs.String("iap-id", "", "Iris IAP resource ID or product ID")
 	confirm := fs.Bool("confirm", false, "Confirm the attach operation")
 	authFlags := bindWebSessionFlags(fs)
 	output := shared.BindOutputFlags(fs)
@@ -138,8 +141,17 @@ func WebReviewIAPsAttachCommand() *ffcli.Command {
 		Name:       "attach",
 		ShortUsage: "asc web review iaps attach --app APP_ID --iap-id IAP_ID_OR_PRODUCT_ID --confirm [flags]",
 		ShortHelp:  "[experimental] Attach a non-renewing IAP to the next app version review.",
-		FlagSet:    fs,
-		UsageFunc:  shared.DefaultUsageFunc,
+		LongHelp: `EXPERIMENTAL / UNOFFICIAL / DISCOURAGED
+
+Attach a non-renewing in-app purchase to the next app version review.
+
+The --iap-id selector accepts the private Iris resource id or the bundle-style
+productId from ` + "`asc iap list`" + `. Apple's Iris listing does not expose the
+public numeric ASC IAP id, so that numeric id is not resolved by this command.
+
+` + webWarningText,
+		FlagSet:   fs,
+		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
 			trimmedAppID := strings.TrimSpace(*appID)
 			trimmedIAPID := strings.TrimSpace(*iapID)
@@ -165,7 +177,7 @@ func WebReviewIAPsAttachCommand() *ffcli.Command {
 			// productId that matched via `attributes.productId`, in which
 			// case posting the selector as the relationship id would be
 			// wrong. Always use the resolved iris UUID.
-			resolvedIrisID := reviewIAP.ID
+			resolvedIrisID := strings.TrimSpace(reviewIAP.ID)
 			if reviewIAP.SubmitWithNextAppStoreVersion {
 				payload := reviewIAPMutationOutput{
 					AppID:     trimmedAppID,
