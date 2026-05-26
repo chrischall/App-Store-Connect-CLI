@@ -65,8 +65,6 @@ func validateReviewIAPAttachInputs(appID, iapID string, confirm bool) error {
 		return shared.UsageError("--app must be a numeric App Store Connect app ID")
 	case strings.TrimSpace(iapID) == "":
 		return shared.UsageError("--iap-id is required")
-	case shared.SelectorNeedsLookup(iapID):
-		return shared.UsageError("--iap-id must be a numeric App Store Connect in-app purchase ID")
 	case !confirm:
 		return shared.UsageError("--confirm is required")
 	default:
@@ -85,6 +83,9 @@ func verifyReviewIAPBelongsToApp(ctx context.Context, client reviewIAPFinder, ap
 	}
 	if !found {
 		return webcore.ReviewIAP{}, fmt.Errorf("in-app purchase %q was not found under app %q; refusing to attach", iapID, appID)
+	}
+	if strings.TrimSpace(iap.ID) == "" {
+		return webcore.ReviewIAP{}, fmt.Errorf("in-app purchase %q under app %q is missing an iris resource id; refusing to attach", iapID, appID)
 	}
 	return iap, nil
 }
@@ -131,17 +132,26 @@ func WebReviewIAPsAttachCommand() *ffcli.Command {
 	fs := flag.NewFlagSet("web review iaps attach", flag.ExitOnError)
 
 	appID := fs.String("app", "", "App ID")
-	iapID := fs.String("iap-id", "", "Non-renewing IAP ID")
+	iapID := fs.String("iap-id", "", "Iris IAP resource ID or product ID")
 	confirm := fs.Bool("confirm", false, "Confirm the attach operation")
 	authFlags := bindWebSessionFlags(fs)
 	output := shared.BindOutputFlags(fs)
 
 	return &ffcli.Command{
 		Name:       "attach",
-		ShortUsage: "asc web review iaps attach --app APP_ID --iap-id IAP_ID --confirm [flags]",
+		ShortUsage: "asc web review iaps attach --app APP_ID --iap-id IAP_ID_OR_PRODUCT_ID --confirm [flags]",
 		ShortHelp:  "[experimental] Attach a non-renewing IAP to the next app version review.",
-		FlagSet:    fs,
-		UsageFunc:  shared.DefaultUsageFunc,
+		LongHelp: `EXPERIMENTAL / UNOFFICIAL / DISCOURAGED
+
+Attach a non-renewing in-app purchase to the next app version review.
+
+The --iap-id selector accepts the private Iris resource id or the bundle-style
+productId from ` + "`asc iap list`" + `. Apple's Iris listing does not expose the
+public numeric ASC IAP id, so that numeric id is not resolved by this command.
+
+` + webWarningText,
+		FlagSet:   fs,
+		UsageFunc: shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
 			trimmedAppID := strings.TrimSpace(*appID)
 			trimmedIAPID := strings.TrimSpace(*iapID)
@@ -162,6 +172,12 @@ func WebReviewIAPsAttachCommand() *ffcli.Command {
 			if err != nil {
 				return fmt.Errorf("web review iaps attach: %w", err)
 			}
+			// The iris attach POST takes the iris resource id, not the
+			// caller's selector — `--iap-id` may have been a bundle-style
+			// productId that matched via `attributes.productId`, in which
+			// case posting the selector as the relationship id would be
+			// wrong. Always use the resolved iris UUID.
+			resolvedIrisID := strings.TrimSpace(reviewIAP.ID)
 			if reviewIAP.SubmitWithNextAppStoreVersion {
 				payload := reviewIAPMutationOutput{
 					AppID:     trimmedAppID,
@@ -169,7 +185,7 @@ func WebReviewIAPsAttachCommand() *ffcli.Command {
 					Operation: "attach",
 					Changed:   false,
 					Submission: webcore.ReviewIAPSubmission{
-						InAppPurchaseID:               trimmedIAPID,
+						InAppPurchaseID:               resolvedIrisID,
 						SubmitWithNextAppStoreVersion: true,
 					},
 				}
@@ -183,9 +199,28 @@ func WebReviewIAPsAttachCommand() *ffcli.Command {
 			}
 
 			submission, err := withWebSpinnerValue("Attaching IAP to next app version", func() (webcore.ReviewIAPSubmission, error) {
-				return client.CreateInAppPurchaseSubmission(requestCtx, trimmedIAPID)
+				return client.CreateInAppPurchaseSubmission(requestCtx, resolvedIrisID)
 			})
 			if err != nil {
+				if webcore.IsAlreadyExistsConflict(err) {
+					payload := reviewIAPMutationOutput{
+						AppID:     trimmedAppID,
+						IAPID:     trimmedIAPID,
+						Operation: "attach",
+						Changed:   false,
+						Submission: webcore.ReviewIAPSubmission{
+							InAppPurchaseID:               resolvedIrisID,
+							SubmitWithNextAppStoreVersion: true,
+						},
+					}
+					return shared.PrintOutputWithRenderers(
+						payload,
+						*output.Output,
+						*output.Pretty,
+						func() error { return renderReviewIAPMutationTable(payload) },
+						func() error { return renderReviewIAPMutationMarkdown(payload) },
+					)
+				}
 				return withWebAuthHint(
 					fmt.Errorf("web review iaps attach for app %q, iap %q: %w", trimmedAppID, trimmedIAPID, err),
 					"web review iaps attach",

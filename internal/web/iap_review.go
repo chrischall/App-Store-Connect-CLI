@@ -9,17 +9,31 @@ import (
 	"strings"
 )
 
-const reviewIAPFields = "productId,name,state,inAppPurchaseType,isAppStoreReviewInProgress,submitWithNextAppStoreVersion"
+// reviewIAPFields is the set of `fields[inAppPurchases]` keys Apple's iris
+// `/apps/{APP_ID}/inAppPurchases` endpoint accepts.
+//
+// The iris flavor of this resource is narrower than the public REST API:
+// `name`, `inAppPurchaseType`, `isAppStoreReviewInProgress`, and
+// `submitWithNextAppStoreVersion` all return `PARAMETER_ERROR.INVALID`
+// here. Apple uses `referenceName` for the human-readable label on this
+// endpoint. The post-attach response from `/inAppPurchaseSubmissions`
+// carries `submitWithNextAppStoreVersion`, so the listing only needs the
+// fields below to scope the IAP being attached.
+const reviewIAPFields = "productId,referenceName,state"
 
-// ReviewIAP summarizes a non-subscription IAP's attach state for the next app
-// version review.
+// ReviewIAP summarizes a non-subscription IAP returned by the iris listing
+// used during the next app version review attach flow.
+//
+// `SubmitWithNextAppStoreVersion` is retained on the struct for API
+// compatibility but is never populated from the iris listing — Apple's
+// `/apps/{APP_ID}/inAppPurchases` rejects it as an invalid field. The
+// post-attach response from `/inAppPurchaseSubmissions` carries the same
+// flag; see ReviewIAPSubmission for the populated version.
 type ReviewIAP struct {
 	ID                            string `json:"id"`
 	ProductID                     string `json:"productId,omitempty"`
-	Name                          string `json:"name,omitempty"`
+	ReferenceName                 string `json:"referenceName,omitempty"`
 	State                         string `json:"state,omitempty"`
-	InAppPurchaseType             string `json:"inAppPurchaseType,omitempty"`
-	IsAppStoreReviewInProgress    bool   `json:"isAppStoreReviewInProgress"`
 	SubmitWithNextAppStoreVersion bool   `json:"submitWithNextAppStoreVersion"`
 }
 
@@ -34,17 +48,26 @@ type ReviewIAPSubmission struct {
 
 func decodeReviewIAP(resource jsonAPIResource) ReviewIAP {
 	return ReviewIAP{
-		ID:                            strings.TrimSpace(resource.ID),
-		ProductID:                     stringAttr(resource.Attributes, "productId"),
-		Name:                          stringAttr(resource.Attributes, "name"),
-		State:                         stringAttr(resource.Attributes, "state"),
-		InAppPurchaseType:             stringAttr(resource.Attributes, "inAppPurchaseType"),
-		IsAppStoreReviewInProgress:    boolAttr(resource.Attributes, "isAppStoreReviewInProgress"),
+		ID:            strings.TrimSpace(resource.ID),
+		ProductID:     stringAttr(resource.Attributes, "productId"),
+		ReferenceName: stringAttr(resource.Attributes, "referenceName"),
+		State:         stringAttr(resource.Attributes, "state"),
+		// Decoded defensively — Apple's iris listing doesn't currently include
+		// it (the field is not in reviewIAPFields), but if Apple starts
+		// returning it the idempotency short-circuit in the attach command
+		// will pick it up without further code changes.
 		SubmitWithNextAppStoreVersion: boolAttr(resource.Attributes, "submitWithNextAppStoreVersion"),
 	}
 }
 
 // FindReviewIAP finds a single app-scoped IAP through the private web flow.
+//
+// The caller may pass either the iris IAP resource ID (a UUID, distinct from
+// the numeric public-REST-API in-app purchase ID) or the product ID
+// (e.g. `com.example.pro.lifetime`). The product-ID match exists because
+// the public REST API surfaces a numeric ID that does not match the iris
+// resource's ID, and users typically know either the iris UUID or the
+// product ID — not both.
 func (c *Client) FindReviewIAP(ctx context.Context, appID, iapID string) (ReviewIAP, bool, error) {
 	appID = strings.TrimSpace(appID)
 	if appID == "" {
@@ -58,10 +81,11 @@ func (c *Client) FindReviewIAP(ctx context.Context, appID, iapID string) (Review
 	query := url.Values{}
 	query.Set("fields[inAppPurchases]", reviewIAPFields)
 	query.Set("limit", "300")
-	query.Set("sort", "name")
+	query.Set("sort", "referenceName")
 
 	nextPath := queryPath("/apps/"+url.PathEscape(appID)+"/inAppPurchases", query)
 	visited := map[string]struct{}{}
+	var productIDMatch *ReviewIAP
 
 	for nextPath != "" {
 		if _, seen := visited[nextPath]; seen {
@@ -79,8 +103,13 @@ func (c *Client) FindReviewIAP(ctx context.Context, appID, iapID string) (Review
 			return ReviewIAP{}, false, fmt.Errorf("failed to parse review iaps response: %w", err)
 		}
 		for _, resource := range payload.Data {
-			if strings.TrimSpace(resource.ID) == iapID {
-				return decodeReviewIAP(resource), true, nil
+			decoded := decodeReviewIAP(resource)
+			if decoded.ID == iapID {
+				return decoded, true, nil
+			}
+			if productIDMatch == nil && decoded.ProductID == iapID {
+				match := decoded
+				productIDMatch = &match
 			}
 		}
 
@@ -95,6 +124,10 @@ func (c *Client) FindReviewIAP(ctx context.Context, appID, iapID string) (Review
 		if err != nil {
 			return ReviewIAP{}, false, fmt.Errorf("failed to normalize review iaps pagination link: %w", err)
 		}
+	}
+
+	if productIDMatch != nil {
+		return *productIDMatch, true, nil
 	}
 
 	return ReviewIAP{}, false, nil

@@ -21,9 +21,21 @@ func TestFindReviewIAPReturnsFirstMatchingAppScopedIAP(t *testing.T) {
 			t.Fatalf("expected limit=300, got %q", got)
 		}
 		fields := r.URL.Query().Get("fields[inAppPurchases]")
-		for _, want := range []string{"productId", "name", "state", "submitWithNextAppStoreVersion"} {
-			if !strings.Contains(fields, want) {
+		fieldTokens := map[string]bool{}
+		for _, field := range strings.Split(fields, ",") {
+			fieldTokens[strings.TrimSpace(field)] = true
+		}
+		for _, want := range []string{"productId", "referenceName", "state"} {
+			if !fieldTokens[want] {
 				t.Fatalf("expected fields to contain %q, got %q", want, fields)
+			}
+		}
+		// Apple's iris flavor rejects these names with PARAMETER_ERROR.INVALID
+		// (verified against /apps/{APP_ID}/inAppPurchases) — guard against
+		// re-adding them in a future patch.
+		for _, forbidden := range []string{"name", "inAppPurchaseType", "isAppStoreReviewInProgress", "submitWithNextAppStoreVersion"} {
+			if fieldTokens[forbidden] {
+				t.Fatalf("fields must not include %q (iris rejects it): %q", forbidden, fields)
 			}
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -34,11 +46,8 @@ func TestFindReviewIAPReturnsFirstMatchingAppScopedIAP(t *testing.T) {
 					"type": "inAppPurchases",
 					"attributes": {
 						"productId": "com.example.removeads",
-						"name": "Remove Ads",
-						"state": "READY_TO_SUBMIT",
-						"inAppPurchaseType": "NON_CONSUMABLE",
-						"isAppStoreReviewInProgress": false,
-						"submitWithNextAppStoreVersion": true
+						"referenceName": "Remove Ads",
+						"state": "READY_TO_SUBMIT"
 					}
 				}
 			],
@@ -57,8 +66,191 @@ func TestFindReviewIAPReturnsFirstMatchingAppScopedIAP(t *testing.T) {
 	if !found {
 		t.Fatal("expected IAP to be found")
 	}
-	if got.ID != "iap-1" || got.ProductID != "com.example.removeads" || got.Name != "Remove Ads" || got.State != "READY_TO_SUBMIT" || got.InAppPurchaseType != "NON_CONSUMABLE" || !got.SubmitWithNextAppStoreVersion {
+	if got.ID != "iap-1" || got.ProductID != "com.example.removeads" || got.ReferenceName != "Remove Ads" || got.State != "READY_TO_SUBMIT" {
 		t.Fatalf("unexpected IAP payload: %#v", got)
+	}
+}
+
+func TestFindReviewIAPMatchesByProductID(t *testing.T) {
+	// The iris listing returns a UUID-shaped resource ID that does not match
+	// the numeric public-REST-API IAP ID. Callers commonly know the product
+	// ID instead, so FindReviewIAP also matches on `productId`.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"data": [
+				{
+					"id": "ae6d89d7-15c5-4a3d-9041-663a4d40638e",
+					"type": "inAppPurchases",
+					"attributes": {
+						"productId": "com.example.lifetime",
+						"referenceName": "Lifetime",
+						"state": "READY_TO_SUBMIT"
+					}
+				}
+			],
+			"links": {"next": ""}
+		}`))
+	}))
+	defer server.Close()
+
+	client := testWebClient(server)
+	got, found, err := client.FindReviewIAP(context.Background(), "app-123", "com.example.lifetime")
+	if err != nil {
+		t.Fatalf("FindReviewIAP() error = %v", err)
+	}
+	if !found {
+		t.Fatal("expected IAP to be found by product id")
+	}
+	if got.ID != "ae6d89d7-15c5-4a3d-9041-663a4d40638e" || got.ProductID != "com.example.lifetime" {
+		t.Fatalf("unexpected IAP payload: %#v", got)
+	}
+}
+
+func TestFindReviewIAPPrefersExactResourceIDOverProductIDFallback(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"data": [
+				{
+					"id": "resource-from-product-fallback",
+					"type": "inAppPurchases",
+					"attributes": {
+						"productId": "iap-2",
+						"referenceName": "Collision Product",
+						"state": "READY_TO_SUBMIT"
+					}
+				},
+				{
+					"id": "iap-2",
+					"type": "inAppPurchases",
+					"attributes": {
+						"productId": "com.example.target",
+						"referenceName": "Exact Resource",
+						"state": "READY_TO_SUBMIT"
+					}
+				}
+			],
+			"links": {"next": ""}
+		}`))
+	}))
+	defer server.Close()
+
+	client := testWebClient(server)
+	got, found, err := client.FindReviewIAP(context.Background(), "app-123", "iap-2")
+	if err != nil {
+		t.Fatalf("FindReviewIAP() error = %v", err)
+	}
+	if !found {
+		t.Fatal("expected IAP to be found")
+	}
+	if got.ID != "iap-2" || got.ProductID != "com.example.target" {
+		t.Fatalf("expected exact resource-id match to win, got %#v", got)
+	}
+}
+
+func TestFindReviewIAPPrefersExactResourceIDOnLaterPage(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		switch calls {
+		case 1:
+			_, _ = w.Write([]byte(`{
+				"data": [{
+					"id": "resource-from-product-fallback",
+					"type": "inAppPurchases",
+					"attributes": {"productId": "iap-2"}
+				}],
+				"links": {"next": "/apps/app-123/inAppPurchases?page=2"}
+			}`))
+		case 2:
+			_, _ = w.Write([]byte(`{
+				"data": [{
+					"id": "iap-2",
+					"type": "inAppPurchases",
+					"attributes": {"productId": "com.example.target"}
+				}],
+				"links": {"next": ""}
+			}`))
+		default:
+			t.Fatalf("unexpected extra request %d: %s", calls, r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	client := testWebClient(server)
+	got, found, err := client.FindReviewIAP(context.Background(), "app-123", "iap-2")
+	if err != nil {
+		t.Fatalf("FindReviewIAP() error = %v", err)
+	}
+	if !found {
+		t.Fatal("expected IAP to be found")
+	}
+	if got.ID != "iap-2" || got.ProductID != "com.example.target" {
+		t.Fatalf("expected later exact resource-id match to win, got %#v", got)
+	}
+	if calls != 2 {
+		t.Fatalf("expected two paginated requests, got %d", calls)
+	}
+}
+
+func TestFindReviewIAPMatchesMaxBinRedactedSchema(t *testing.T) {
+	const (
+		publicASCIAPID = "1234567890"
+		irisResourceID = "ae6d89d7-15c5-4a3d-9041-663a4d40638e"
+		productID      = "com.example.app.pro.lifetime"
+	)
+
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if r.URL.Path != "/apps/app-123/inAppPurchases" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("fields[inAppPurchases]"); got != reviewIAPFields {
+			t.Fatalf("expected iris-safe fields %q, got %q", reviewIAPFields, got)
+		}
+		if got := r.URL.Query().Get("sort"); got != "referenceName" {
+			t.Fatalf("expected sort=referenceName, got %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"data": [{
+				"id": "` + irisResourceID + `",
+				"type": "inAppPurchases",
+				"attributes": {
+					"productId": "` + productID + `",
+					"referenceName": "Pro Lifetime",
+					"state": "READY_TO_SUBMIT"
+				}
+			}],
+			"links": {"next": ""}
+		}`))
+	}))
+	defer server.Close()
+
+	client := testWebClient(server)
+	got, found, err := client.FindReviewIAP(context.Background(), "app-123", productID)
+	if err != nil {
+		t.Fatalf("FindReviewIAP(productID) error = %v", err)
+	}
+	if !found {
+		t.Fatal("expected IAP to be found by bundle-style productId")
+	}
+	if got.ID != irisResourceID || got.ProductID != productID || got.ReferenceName != "Pro Lifetime" {
+		t.Fatalf("unexpected IAP payload: %#v", got)
+	}
+
+	_, found, err = client.FindReviewIAP(context.Background(), "app-123", publicASCIAPID)
+	if err != nil {
+		t.Fatalf("FindReviewIAP(public numeric id) error = %v", err)
+	}
+	if found {
+		t.Fatalf("public numeric ASC IAP id %q must not match Iris schema that only exposes id=%q and productId=%q", publicASCIAPID, irisResourceID, productID)
+	}
+	if requests != 2 {
+		t.Fatalf("expected two lookup requests, got %d", requests)
 	}
 }
 

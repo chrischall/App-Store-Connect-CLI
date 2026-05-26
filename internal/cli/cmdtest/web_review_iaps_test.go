@@ -21,6 +21,11 @@ import (
 func TestWebReviewIAPsAttachRootSuccess(t *testing.T) {
 	setupCachedWebReviewIAPSession(t, "user@example.com")
 
+	const (
+		irisResourceID = "11111111-2222-3333-4444-555555555555"
+		productID      = "com.example.removeads"
+	)
+
 	requests := newRequestLog(3)
 	installDefaultTransport(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		requests.Add(req.Method + " " + req.URL.Host + req.URL.Path)
@@ -45,17 +50,16 @@ func TestWebReviewIAPsAttachRootSuccess(t *testing.T) {
 				t.Fatalf("expected web IAP lookup limit=300, got %q", got)
 			}
 			return webReviewIAPJSONResponse(http.StatusOK, `{
-				"data": [{
-					"type": "inAppPurchases",
-					"id": "9000000001",
-					"attributes": {
-						"name": "Remove Ads",
-						"productId": "com.example.removeads",
-						"inAppPurchaseType": "NON_CONSUMABLE",
-						"state": "READY_TO_SUBMIT"
-					}
-				}]
-			}`, req), nil
+					"data": [{
+						"type": "inAppPurchases",
+						"id": "`+irisResourceID+`",
+						"attributes": {
+							"productId": "`+productID+`",
+							"referenceName": "Remove Ads",
+							"state": "READY_TO_SUBMIT"
+						}
+					}]
+				}`, req), nil
 		case req.Method == http.MethodPost &&
 			req.URL.Host == "appstoreconnect.apple.com" &&
 			req.URL.Path == "/iris/v1/inAppPurchaseSubmissions":
@@ -63,29 +67,45 @@ func TestWebReviewIAPsAttachRootSuccess(t *testing.T) {
 			if err != nil {
 				t.Fatalf("read request body: %v", err)
 			}
-			body := string(bodyBytes)
-			for _, want := range []string{
-				`"id":"9000000001"`,
-				`"submitWithNextAppStoreVersion":true`,
-				`"inAppPurchaseV2"`,
-			} {
-				if !strings.Contains(body, want) {
-					t.Fatalf("expected request body to contain %q, got %s", want, body)
-				}
+			var post struct {
+				Data struct {
+					Attributes struct {
+						SubmitWithNextAppStoreVersion bool `json:"submitWithNextAppStoreVersion"`
+					} `json:"attributes"`
+					Relationships struct {
+						InAppPurchaseV2 struct {
+							Data struct {
+								ID string `json:"id"`
+							} `json:"data"`
+						} `json:"inAppPurchaseV2"`
+					} `json:"relationships"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(bodyBytes, &post); err != nil {
+				t.Fatalf("decode request body: %v; body=%s", err, bodyBytes)
+			}
+			if got := post.Data.Relationships.InAppPurchaseV2.Data.ID; got != irisResourceID {
+				t.Fatalf("expected request body relationship id %q, got %q", irisResourceID, got)
+			}
+			if got := post.Data.Relationships.InAppPurchaseV2.Data.ID; got == productID {
+				t.Fatalf("request body must not use productId as relationship id; body=%s", bodyBytes)
+			}
+			if !post.Data.Attributes.SubmitWithNextAppStoreVersion {
+				t.Fatalf("expected request body to submit with next app store version; body=%s", bodyBytes)
 			}
 			return webReviewIAPJSONResponse(http.StatusCreated, `{
-				"data": {
+					"data": {
 					"type": "inAppPurchaseSubmissions",
 					"id": "submission-1",
 					"attributes": {
 						"submitWithNextAppStoreVersion": true
-					},
-					"relationships": {
-						"inAppPurchaseV2": {
-							"data": {"type": "inAppPurchases", "id": "9000000001"}
+						},
+						"relationships": {
+							"inAppPurchaseV2": {
+								"data": {"type": "inAppPurchases", "id": "`+irisResourceID+`"}
+							}
 						}
 					}
-				}
 			}`, req), nil
 		default:
 			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
@@ -101,7 +121,7 @@ func TestWebReviewIAPsAttachRootSuccess(t *testing.T) {
 		if err := root.Parse([]string{
 			"web", "review", "iaps", "attach",
 			"--app", "123456789",
-			"--iap-id", "9000000001",
+			"--iap-id", productID,
 			"--confirm",
 			"--apple-id", "user@example.com",
 			"--output", "json",
@@ -131,10 +151,10 @@ func TestWebReviewIAPsAttachRootSuccess(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
 		t.Fatalf("failed to parse stdout JSON: %v\nstdout=%s", err, stdout)
 	}
-	if payload.AppID != "123456789" || payload.IAPID != "9000000001" || payload.Operation != "attach" || !payload.Changed {
+	if payload.AppID != "123456789" || payload.IAPID != productID || payload.Operation != "attach" || !payload.Changed {
 		t.Fatalf("unexpected payload: %#v", payload)
 	}
-	if payload.Submission.ID != "submission-1" || payload.Submission.InAppPurchaseID != "9000000001" {
+	if payload.Submission.ID != "submission-1" || payload.Submission.InAppPurchaseID != irisResourceID {
 		t.Fatalf("unexpected submission: %#v", payload.Submission)
 	}
 
@@ -173,11 +193,6 @@ func TestWebReviewIAPsAttachValidationErrors(t *testing.T) {
 			name:       "non numeric app",
 			args:       []string{"web", "review", "iaps", "attach", "--app", "com.example.app", "--iap-id", "9000000001", "--confirm"},
 			wantStderr: "--app must be a numeric App Store Connect app ID",
-		},
-		{
-			name:       "non numeric iap",
-			args:       []string{"web", "review", "iaps", "attach", "--app", "123456789", "--iap-id", "com.example.pro", "--confirm"},
-			wantStderr: "--iap-id must be a numeric App Store Connect in-app purchase ID",
 		},
 	}
 
@@ -286,14 +301,14 @@ func TestWebReviewIAPsAttachInvalidValueExitCodes(t *testing.T) {
 			wantStderr: "--app must be a numeric App Store Connect app ID",
 		},
 		{
-			name:       "invalid iap selector",
-			args:       []string{"web", "review", "iaps", "attach", "--app", "123456789", "--iap-id", "com.example.pro", "--confirm"},
-			wantStderr: "--iap-id must be a numeric App Store Connect in-app purchase ID",
-		},
-		{
 			name:       "invalid confirm value",
 			args:       []string{"web", "review", "iaps", "attach", "--app", "123456789", "--iap-id", "9000000001", "--confirm=maybe"},
 			wantStderr: `invalid boolean value "maybe" for -confirm`,
+		},
+		{
+			name:       "blank iap selector",
+			args:       []string{"web", "review", "iaps", "attach", "--app", "123456789", "--iap-id", "   ", "--confirm"},
+			wantStderr: "--iap-id is required",
 		},
 		{
 			name:       "subcommand flag before attach rejected",
