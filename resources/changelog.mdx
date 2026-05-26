@@ -16,6 +16,19 @@ The App Store Connect CLI follows semantic versioning. All releases are availabl
 
 * No unreleased changes yet.
 
+### 1.5.4
+
+**Highlights**:
+
+* `asc web review iaps attach` now matches App Review IAPs against the Iris resource ID and bundle-style `productId`, then always posts the resolved Iris resource ID so product-ID based attach flows work reliably
+* The IAP attach flow is safer for reruns, with narrower idempotent conflict handling and stronger guards for Apple's Iris response schema
+
+**Changes**:
+
+* `fix(web)`: Resolve non-renewing IAP review attach lookup and mutation mismatches across Iris resource IDs and product IDs
+* `fix(web)`: Narrow already-attached conflict handling so only true idempotent conflicts are treated as no-change results
+* `test(web)`: Add regression coverage for Iris-safe IAP fields, product-ID attach, conflict classification, and resource-ID/product-ID collision handling
+
 ### 1.5.3
 
 **Highlights**:
