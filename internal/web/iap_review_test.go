@@ -1,0 +1,263 @@
+package web
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
+
+func TestFindReviewIAPReturnsFirstMatchingAppScopedIAP(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/apps/app-123/inAppPurchases" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if r.Method != http.MethodGet {
+			t.Fatalf("unexpected method: %s", r.Method)
+		}
+		if got := r.URL.Query().Get("limit"); got != "300" {
+			t.Fatalf("expected limit=300, got %q", got)
+		}
+		fields := r.URL.Query().Get("fields[inAppPurchases]")
+		for _, want := range []string{"productId", "name", "state", "submitWithNextAppStoreVersion"} {
+			if !strings.Contains(fields, want) {
+				t.Fatalf("expected fields to contain %q, got %q", want, fields)
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"data": [
+				{
+					"id": "iap-1",
+					"type": "inAppPurchases",
+					"attributes": {
+						"productId": "com.example.removeads",
+						"name": "Remove Ads",
+						"state": "READY_TO_SUBMIT",
+						"inAppPurchaseType": "NON_CONSUMABLE",
+						"isAppStoreReviewInProgress": false,
+						"submitWithNextAppStoreVersion": true
+					}
+				}
+			],
+			"links": {
+				"next": ""
+			}
+		}`))
+	}))
+	defer server.Close()
+
+	client := testWebClient(server)
+	got, found, err := client.FindReviewIAP(context.Background(), "app-123", "iap-1")
+	if err != nil {
+		t.Fatalf("FindReviewIAP() error = %v", err)
+	}
+	if !found {
+		t.Fatal("expected IAP to be found")
+	}
+	if got.ID != "iap-1" || got.ProductID != "com.example.removeads" || got.Name != "Remove Ads" || got.State != "READY_TO_SUBMIT" || got.InAppPurchaseType != "NON_CONSUMABLE" || !got.SubmitWithNextAppStoreVersion {
+		t.Fatalf("unexpected IAP payload: %#v", got)
+	}
+}
+
+func TestFindReviewIAPStopsAfterMatchingPage(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls > 1 {
+			t.Fatalf("expected lookup to stop after finding target, got request %s", r.URL.String())
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"data": [{
+				"id": "iap-1",
+				"type": "inAppPurchases",
+				"attributes": {"productId": "com.example.removeads"}
+			}],
+			"links": {
+				"next": "https://example.com/should-not-fetch"
+			}
+		}`))
+	}))
+	defer server.Close()
+
+	client := testWebClient(server)
+	got, found, err := client.FindReviewIAP(context.Background(), "app-123", "iap-1")
+	if err != nil {
+		t.Fatalf("FindReviewIAP() error = %v", err)
+	}
+	if !found || got.ID != "iap-1" {
+		t.Fatalf("expected target IAP, got found=%t payload=%#v", found, got)
+	}
+	if calls != 1 {
+		t.Fatalf("expected one request, got %d", calls)
+	}
+}
+
+func TestFindReviewIAPReturnsFalseWhenMissing(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	defer server.Close()
+
+	client := testWebClient(server)
+	_, found, err := client.FindReviewIAP(context.Background(), "app-123", "missing-iap")
+	if err != nil {
+		t.Fatalf("FindReviewIAP() error = %v", err)
+	}
+	if found {
+		t.Fatal("expected missing IAP")
+	}
+}
+
+func TestFindReviewIAPRejectsEmptyAppID(t *testing.T) {
+	client := &Client{}
+	_, found, err := client.FindReviewIAP(context.Background(), "   ", "iap-1")
+	if err == nil {
+		t.Fatal("expected error for empty app id, got nil")
+	}
+	if found {
+		t.Fatal("expected empty app id to return found=false")
+	}
+}
+
+func TestFindReviewIAPRejectsEmptyIAPID(t *testing.T) {
+	client := &Client{}
+	_, found, err := client.FindReviewIAP(context.Background(), "app-123", "   ")
+	if err == nil {
+		t.Fatal("expected error for empty iap id, got nil")
+	}
+	if found {
+		t.Fatal("expected empty iap id to return found=false")
+	}
+}
+
+func TestCreateInAppPurchaseSubmissionSendsHiddenAttachPayload(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/inAppPurchaseSubmissions" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if r.Method != http.MethodPost {
+			t.Fatalf("unexpected method: %s", r.Method)
+		}
+		var payload struct {
+			Data struct {
+				Type          string `json:"type"`
+				Attributes    map[string]bool
+				Relationships map[string]struct {
+					Data struct {
+						Type string `json:"type"`
+						ID   string `json:"id"`
+					} `json:"data"`
+				} `json:"relationships"`
+			} `json:"data"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("failed to decode body: %v", err)
+		}
+		if payload.Data.Type != "inAppPurchaseSubmissions" {
+			t.Fatalf("expected type inAppPurchaseSubmissions, got %q", payload.Data.Type)
+		}
+		if !payload.Data.Attributes["submitWithNextAppStoreVersion"] {
+			t.Fatalf("expected hidden attach flag to be true, got %#v", payload.Data.Attributes)
+		}
+		relationship := payload.Data.Relationships["inAppPurchaseV2"].Data
+		if relationship.Type != "inAppPurchases" || relationship.ID != "iap-1" {
+			t.Fatalf("unexpected inAppPurchaseV2 relationship: %#v", relationship)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"data": {
+				"id": "submission-1",
+				"type": "inAppPurchaseSubmissions",
+				"attributes": {"submitWithNextAppStoreVersion": true},
+				"relationships": {
+					"inAppPurchaseV2": {"data": {"type": "inAppPurchases", "id": "iap-1"}}
+				}
+			}
+		}`))
+	}))
+	defer server.Close()
+
+	client := testWebClient(server)
+	got, err := client.CreateInAppPurchaseSubmission(context.Background(), "iap-1")
+	if err != nil {
+		t.Fatalf("CreateInAppPurchaseSubmission() error = %v", err)
+	}
+	if got.ID != "submission-1" || got.InAppPurchaseID != "iap-1" || !got.SubmitWithNextAppStoreVersion {
+		t.Fatalf("unexpected submission payload: %#v", got)
+	}
+}
+
+func TestCreateInAppPurchaseSubmissionFallsBackToRequestedIDWhenRelationshipMissing(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"data": {
+				"id": "submission-2",
+				"type": "inAppPurchaseSubmissions",
+				"attributes": {"submitWithNextAppStoreVersion": true}
+			}
+		}`))
+	}))
+	defer server.Close()
+
+	client := testWebClient(server)
+	got, err := client.CreateInAppPurchaseSubmission(context.Background(), "iap-fallback")
+	if err != nil {
+		t.Fatalf("CreateInAppPurchaseSubmission() error = %v", err)
+	}
+	if got.InAppPurchaseID != "iap-fallback" {
+		t.Fatalf("expected fallback InAppPurchaseID, got %q", got.InAppPurchaseID)
+	}
+	if got.ID != "submission-2" || !got.SubmitWithNextAppStoreVersion {
+		t.Fatalf("unexpected payload: %#v", got)
+	}
+}
+
+func TestCreateInAppPurchaseSubmissionRejectsMissingSubmissionID(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"data": {
+				"type": "inAppPurchaseSubmissions",
+				"attributes": {"submitWithNextAppStoreVersion": true}
+			}
+		}`))
+	}))
+	defer server.Close()
+
+	client := testWebClient(server)
+	if _, err := client.CreateInAppPurchaseSubmission(context.Background(), "iap-1"); err == nil {
+		t.Fatal("expected error for missing submission id, got nil")
+	}
+}
+
+func TestCreateInAppPurchaseSubmissionRejectsUnexpectedResourceType(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"data": {
+				"id": "submission-1",
+				"type": "unexpectedResources",
+				"attributes": {"submitWithNextAppStoreVersion": true}
+			}
+		}`))
+	}))
+	defer server.Close()
+
+	client := testWebClient(server)
+	if _, err := client.CreateInAppPurchaseSubmission(context.Background(), "iap-1"); err == nil {
+		t.Fatal("expected error for unexpected resource type, got nil")
+	}
+}
+
+func TestCreateInAppPurchaseSubmissionRejectsEmptyID(t *testing.T) {
+	client := &Client{}
+	if _, err := client.CreateInAppPurchaseSubmission(context.Background(), "  "); err == nil {
+		t.Fatal("expected error for empty iap id, got nil")
+	}
+}
