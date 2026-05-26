@@ -94,27 +94,6 @@ func TestWebReviewIAPsAttachRejectsNonNumericAppID(t *testing.T) {
 	}
 }
 
-func TestWebReviewIAPsAttachRejectsNonNumericIAPID(t *testing.T) {
-	cmd := WebReviewIAPsAttachCommand()
-	if err := cmd.FlagSet.Parse([]string{
-		"--app", "123456789",
-		"--iap-id", "com.example.pro",
-		"--confirm",
-	}); err != nil {
-		t.Fatalf("parse error: %v", err)
-	}
-
-	_, stderr := captureOutput(t, func() {
-		err := cmd.Exec(context.Background(), nil)
-		if !errors.Is(err, flag.ErrHelp) {
-			t.Fatalf("expected flag.ErrHelp, got %v", err)
-		}
-	})
-	if !strings.Contains(stderr, "--iap-id must be a numeric App Store Connect in-app purchase ID") {
-		t.Fatalf("expected numeric --iap-id guidance in stderr, got %q", stderr)
-	}
-}
-
 func TestWebReviewIAPsAttachVerifiesIAPBelongsToAppBeforeMutating(t *testing.T) {
 	_ = stubWebProgressLabels(t)
 

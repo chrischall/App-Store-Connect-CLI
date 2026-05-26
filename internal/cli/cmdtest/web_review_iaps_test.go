@@ -174,11 +174,6 @@ func TestWebReviewIAPsAttachValidationErrors(t *testing.T) {
 			args:       []string{"web", "review", "iaps", "attach", "--app", "com.example.app", "--iap-id", "9000000001", "--confirm"},
 			wantStderr: "--app must be a numeric App Store Connect app ID",
 		},
-		{
-			name:       "non numeric iap",
-			args:       []string{"web", "review", "iaps", "attach", "--app", "123456789", "--iap-id", "com.example.pro", "--confirm"},
-			wantStderr: "--iap-id must be a numeric App Store Connect in-app purchase ID",
-		},
 	}
 
 	for _, test := range tests {
@@ -284,11 +279,6 @@ func TestWebReviewIAPsAttachInvalidValueExitCodes(t *testing.T) {
 			name:       "invalid app selector",
 			args:       []string{"web", "review", "iaps", "attach", "--app", "com.example.app", "--iap-id", "9000000001", "--confirm"},
 			wantStderr: "--app must be a numeric App Store Connect app ID",
-		},
-		{
-			name:       "invalid iap selector",
-			args:       []string{"web", "review", "iaps", "attach", "--app", "123456789", "--iap-id", "com.example.pro", "--confirm"},
-			wantStderr: "--iap-id must be a numeric App Store Connect in-app purchase ID",
 		},
 		{
 			name:       "invalid confirm value",

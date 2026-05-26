@@ -21,9 +21,17 @@ func TestFindReviewIAPReturnsFirstMatchingAppScopedIAP(t *testing.T) {
 			t.Fatalf("expected limit=300, got %q", got)
 		}
 		fields := r.URL.Query().Get("fields[inAppPurchases]")
-		for _, want := range []string{"productId", "name", "state", "submitWithNextAppStoreVersion"} {
+		for _, want := range []string{"productId", "referenceName", "state"} {
 			if !strings.Contains(fields, want) {
 				t.Fatalf("expected fields to contain %q, got %q", want, fields)
+			}
+		}
+		// Apple's iris flavor rejects these names with PARAMETER_ERROR.INVALID
+		// (verified against /apps/{APP_ID}/inAppPurchases) — guard against
+		// re-adding them in a future patch.
+		for _, forbidden := range []string{"name", "inAppPurchaseType", "isAppStoreReviewInProgress", "submitWithNextAppStoreVersion"} {
+			if strings.Contains(fields, forbidden) {
+				t.Fatalf("fields must not include %q (iris rejects it): %q", forbidden, fields)
 			}
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -34,11 +42,8 @@ func TestFindReviewIAPReturnsFirstMatchingAppScopedIAP(t *testing.T) {
 					"type": "inAppPurchases",
 					"attributes": {
 						"productId": "com.example.removeads",
-						"name": "Remove Ads",
-						"state": "READY_TO_SUBMIT",
-						"inAppPurchaseType": "NON_CONSUMABLE",
-						"isAppStoreReviewInProgress": false,
-						"submitWithNextAppStoreVersion": true
+						"referenceName": "Remove Ads",
+						"state": "READY_TO_SUBMIT"
 					}
 				}
 			],
@@ -57,7 +62,43 @@ func TestFindReviewIAPReturnsFirstMatchingAppScopedIAP(t *testing.T) {
 	if !found {
 		t.Fatal("expected IAP to be found")
 	}
-	if got.ID != "iap-1" || got.ProductID != "com.example.removeads" || got.Name != "Remove Ads" || got.State != "READY_TO_SUBMIT" || got.InAppPurchaseType != "NON_CONSUMABLE" || !got.SubmitWithNextAppStoreVersion {
+	if got.ID != "iap-1" || got.ProductID != "com.example.removeads" || got.ReferenceName != "Remove Ads" || got.State != "READY_TO_SUBMIT" {
+		t.Fatalf("unexpected IAP payload: %#v", got)
+	}
+}
+
+func TestFindReviewIAPMatchesByProductID(t *testing.T) {
+	// The iris listing returns a UUID-shaped resource ID that does not match
+	// the numeric public-REST-API IAP ID. Callers commonly know the product
+	// ID instead, so FindReviewIAP also matches on `productId`.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"data": [
+				{
+					"id": "ae6d89d7-15c5-4a3d-9041-663a4d40638e",
+					"type": "inAppPurchases",
+					"attributes": {
+						"productId": "com.example.lifetime",
+						"referenceName": "Lifetime",
+						"state": "READY_TO_SUBMIT"
+					}
+				}
+			],
+			"links": {"next": ""}
+		}`))
+	}))
+	defer server.Close()
+
+	client := testWebClient(server)
+	got, found, err := client.FindReviewIAP(context.Background(), "app-123", "com.example.lifetime")
+	if err != nil {
+		t.Fatalf("FindReviewIAP() error = %v", err)
+	}
+	if !found {
+		t.Fatal("expected IAP to be found by product id")
+	}
+	if got.ID != "ae6d89d7-15c5-4a3d-9041-663a4d40638e" || got.ProductID != "com.example.lifetime" {
 		t.Fatalf("unexpected IAP payload: %#v", got)
 	}
 }

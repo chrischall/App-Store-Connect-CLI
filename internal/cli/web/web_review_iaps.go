@@ -65,8 +65,6 @@ func validateReviewIAPAttachInputs(appID, iapID string, confirm bool) error {
 		return shared.UsageError("--app must be a numeric App Store Connect app ID")
 	case strings.TrimSpace(iapID) == "":
 		return shared.UsageError("--iap-id is required")
-	case shared.SelectorNeedsLookup(iapID):
-		return shared.UsageError("--iap-id must be a numeric App Store Connect in-app purchase ID")
 	case !confirm:
 		return shared.UsageError("--confirm is required")
 	default:
