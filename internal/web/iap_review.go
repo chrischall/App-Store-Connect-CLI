@@ -85,6 +85,7 @@ func (c *Client) FindReviewIAP(ctx context.Context, appID, iapID string) (Review
 
 	nextPath := queryPath("/apps/"+url.PathEscape(appID)+"/inAppPurchases", query)
 	visited := map[string]struct{}{}
+	var productIDMatch *ReviewIAP
 
 	for nextPath != "" {
 		if _, seen := visited[nextPath]; seen {
@@ -103,8 +104,12 @@ func (c *Client) FindReviewIAP(ctx context.Context, appID, iapID string) (Review
 		}
 		for _, resource := range payload.Data {
 			decoded := decodeReviewIAP(resource)
-			if decoded.ID == iapID || decoded.ProductID == iapID {
+			if decoded.ID == iapID {
 				return decoded, true, nil
+			}
+			if productIDMatch == nil && decoded.ProductID == iapID {
+				match := decoded
+				productIDMatch = &match
 			}
 		}
 
@@ -119,6 +124,10 @@ func (c *Client) FindReviewIAP(ctx context.Context, appID, iapID string) (Review
 		if err != nil {
 			return ReviewIAP{}, false, fmt.Errorf("failed to normalize review iaps pagination link: %w", err)
 		}
+	}
+
+	if productIDMatch != nil {
+		return *productIDMatch, true, nil
 	}
 
 	return ReviewIAP{}, false, nil

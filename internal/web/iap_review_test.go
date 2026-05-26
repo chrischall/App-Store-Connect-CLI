@@ -107,6 +107,94 @@ func TestFindReviewIAPMatchesByProductID(t *testing.T) {
 	}
 }
 
+func TestFindReviewIAPPrefersExactResourceIDOverProductIDFallback(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"data": [
+				{
+					"id": "resource-from-product-fallback",
+					"type": "inAppPurchases",
+					"attributes": {
+						"productId": "iap-2",
+						"referenceName": "Collision Product",
+						"state": "READY_TO_SUBMIT"
+					}
+				},
+				{
+					"id": "iap-2",
+					"type": "inAppPurchases",
+					"attributes": {
+						"productId": "com.example.target",
+						"referenceName": "Exact Resource",
+						"state": "READY_TO_SUBMIT"
+					}
+				}
+			],
+			"links": {"next": ""}
+		}`))
+	}))
+	defer server.Close()
+
+	client := testWebClient(server)
+	got, found, err := client.FindReviewIAP(context.Background(), "app-123", "iap-2")
+	if err != nil {
+		t.Fatalf("FindReviewIAP() error = %v", err)
+	}
+	if !found {
+		t.Fatal("expected IAP to be found")
+	}
+	if got.ID != "iap-2" || got.ProductID != "com.example.target" {
+		t.Fatalf("expected exact resource-id match to win, got %#v", got)
+	}
+}
+
+func TestFindReviewIAPPrefersExactResourceIDOnLaterPage(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		switch calls {
+		case 1:
+			_, _ = w.Write([]byte(`{
+				"data": [{
+					"id": "resource-from-product-fallback",
+					"type": "inAppPurchases",
+					"attributes": {"productId": "iap-2"}
+				}],
+				"links": {"next": "/apps/app-123/inAppPurchases?page=2"}
+			}`))
+		case 2:
+			_, _ = w.Write([]byte(`{
+				"data": [{
+					"id": "iap-2",
+					"type": "inAppPurchases",
+					"attributes": {"productId": "com.example.target"}
+				}],
+				"links": {"next": ""}
+			}`))
+		default:
+			t.Fatalf("unexpected extra request %d: %s", calls, r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	client := testWebClient(server)
+	got, found, err := client.FindReviewIAP(context.Background(), "app-123", "iap-2")
+	if err != nil {
+		t.Fatalf("FindReviewIAP() error = %v", err)
+	}
+	if !found {
+		t.Fatal("expected IAP to be found")
+	}
+	if got.ID != "iap-2" || got.ProductID != "com.example.target" {
+		t.Fatalf("expected later exact resource-id match to win, got %#v", got)
+	}
+	if calls != 2 {
+		t.Fatalf("expected two paginated requests, got %d", calls)
+	}
+}
+
 func TestFindReviewIAPMatchesMaxBinRedactedSchema(t *testing.T) {
 	const (
 		publicASCIAPID = "1234567890"
