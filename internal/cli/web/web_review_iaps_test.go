@@ -548,6 +548,119 @@ func TestWebReviewIAPsAttachSkipsAlreadyAttachedIAP(t *testing.T) {
 	}
 }
 
+// In production, iris never returns `submitWithNextAppStoreVersion` in the
+// listing (it is filtered out via `reviewIAPFields`), so the existing
+// short-circuit above never fires. The fallback signal is `state`, which iris
+// does return. When state is one of the in-flight values, the IAP is already
+// enrolled in the next app version review and the CLI must short-circuit
+// before POSTing — otherwise iris answers a re-attach with
+// `ENTITY_ERROR.RELATIONSHIP.INVALID` (UUID form) or
+// `ENTITY_ERROR.ATTRIBUTE.INVALID.UNMODIFIABLE` (numeric form). This test
+// asserts no POST is made.
+func TestWebReviewIAPsAttachShortCircuitsWhenStateIsWaitingForReview(t *testing.T) {
+	_ = stubWebProgressLabels(t)
+
+	origResolveSession := resolveSessionFn
+	t.Cleanup(func() {
+		resolveSessionFn = origResolveSession
+	})
+
+	const (
+		irisResourceID = "ae6d89d7-15c5-4a3d-9041-663a4d40638e"
+		productID      = "com.example.lifetime"
+	)
+
+	resolveSessionFn = func(ctx context.Context, appleID, password, twoFactorCode string) (*webcore.AuthSession, string, error) {
+		return &webcore.AuthSession{
+			Client: &http.Client{
+				Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+					if req.Method == http.MethodPost {
+						t.Fatalf("unexpected POST while IAP is already in flight: %s %s", req.Method, req.URL.Path)
+					}
+					if req.Method != http.MethodGet || req.URL.Path != "/iris/v1/apps/123456789/inAppPurchases" {
+						t.Fatalf("unexpected request: %s %s", req.Method, req.URL.Path)
+					}
+					return &http.Response{
+						StatusCode: http.StatusOK,
+						Header:     http.Header{"Content-Type": []string{"application/json"}},
+						Body: io.NopCloser(strings.NewReader(`{
+							"data": [{
+								"type": "inAppPurchases",
+								"id": "` + irisResourceID + `",
+								"attributes": {
+									"productId": "` + productID + `",
+									"referenceName": "Lifetime",
+									"state": "WAITING_FOR_REVIEW"
+								}
+							}]
+						}`)),
+						Request: req,
+					}, nil
+				}),
+			},
+		}, "cache", nil
+	}
+
+	cmd := WebReviewIAPsAttachCommand()
+	if err := cmd.FlagSet.Parse([]string{
+		"--app", "123456789",
+		"--iap-id", productID,
+		"--confirm",
+		"--output", "json",
+	}); err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	stdout, _ := captureOutput(t, func() {
+		if err := cmd.Exec(context.Background(), nil); err != nil {
+			t.Fatalf("exec error: %v", err)
+		}
+	})
+
+	var payload reviewIAPMutationOutput
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatalf("failed to parse stdout JSON: %v\nstdout=%s", err, stdout)
+	}
+	if payload.IAPID != productID {
+		t.Fatalf("expected IAPID to echo caller selector %q, got %q", productID, payload.IAPID)
+	}
+	if payload.Changed {
+		t.Fatalf("expected in-flight IAP to report changed=false, got %#v", payload)
+	}
+	if payload.Submission.ID != "" {
+		t.Fatalf("expected no submission id when short-circuiting, got %#v", payload.Submission)
+	}
+	if payload.Submission.InAppPurchaseID != irisResourceID || !payload.Submission.SubmitWithNextAppStoreVersion {
+		t.Fatalf("unexpected idempotent submission output: %#v", payload.Submission)
+	}
+}
+
+func TestIAPStateIndicatesAlreadyAttached(t *testing.T) {
+	cases := []struct {
+		state string
+		want  bool
+	}{
+		{"WAITING_FOR_REVIEW", true},
+		{"IN_REVIEW", true},
+		{"PENDING_BINARY_APPROVAL", true},
+		{"waiting_for_review", true},     // case-insensitive
+		{"  WAITING_FOR_REVIEW  ", true}, // trimmed
+		{"READY_TO_SUBMIT", false},
+		{"MISSING_METADATA", false},
+		{"REJECTED", false},
+		{"DEVELOPER_ACTION_NEEDED", false},
+		{"APPROVED", false},
+		{"", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.state, func(t *testing.T) {
+			if got := iapStateIndicatesAlreadyAttached(tc.state); got != tc.want {
+				t.Fatalf("iapStateIndicatesAlreadyAttached(%q)=%v want %v", tc.state, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestWebReviewIAPsAttachRefusesIAPOutsideApp(t *testing.T) {
 	origResolveSession := resolveSessionFn
 	t.Cleanup(func() {
