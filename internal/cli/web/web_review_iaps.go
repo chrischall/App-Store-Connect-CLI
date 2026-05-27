@@ -72,6 +72,29 @@ func validateReviewIAPAttachInputs(appID, iapID string, confirm bool) error {
 	}
 }
 
+// iapStateIndicatesAlreadyAttached reports whether the IAP's current ASC
+// state implies it is already enrolled in the next app version review.
+//
+// The iris listing returns `state` (per `reviewIAPFields`) but does not
+// return the otherwise-authoritative `submitWithNextAppStoreVersion` field,
+// so state is the only signal available pre-POST. When the IAP is in one
+// of these states, iris POST `/inAppPurchaseSubmissions` returns a 409
+// whose error code varies with the IAP-id form used: a re-attach with the
+// iris resource UUID surfaces `ENTITY_ERROR.RELATIONSHIP.INVALID` because
+// iris's internal UUID→numeric-id translation fails for in-flight IAPs,
+// while a re-attach with the public numeric id surfaces
+// `ENTITY_ERROR.ATTRIBUTE.INVALID.UNMODIFIABLE` on
+// `/data/attributes/submitWithNextAppStoreVersion`. Short-circuiting before
+// the POST avoids both error shapes and keeps the CLI's exit semantics
+// stable across the two id-form code paths.
+func iapStateIndicatesAlreadyAttached(state string) bool {
+	switch strings.ToUpper(strings.TrimSpace(state)) {
+	case "WAITING_FOR_REVIEW", "IN_REVIEW", "PENDING_BINARY_APPROVAL":
+		return true
+	}
+	return false
+}
+
 func verifyReviewIAPBelongsToApp(ctx context.Context, client reviewIAPFinder, appID, iapID string) (webcore.ReviewIAP, error) {
 	if client == nil {
 		return webcore.ReviewIAP{}, fmt.Errorf("app-scoped IAP verification client is required")
@@ -178,7 +201,7 @@ public numeric ASC IAP id, so that numeric id is not resolved by this command.
 			// case posting the selector as the relationship id would be
 			// wrong. Always use the resolved iris UUID.
 			resolvedIrisID := strings.TrimSpace(reviewIAP.ID)
-			if reviewIAP.SubmitWithNextAppStoreVersion {
+			if reviewIAP.SubmitWithNextAppStoreVersion || iapStateIndicatesAlreadyAttached(reviewIAP.State) {
 				payload := reviewIAPMutationOutput{
 					AppID:     trimmedAppID,
 					IAPID:     trimmedIAPID,
