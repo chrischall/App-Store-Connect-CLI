@@ -176,6 +176,28 @@ The downloaded `.mobileprovision` file can be:
 * Copied to `~/Library/MobileDevice/Provisioning Profiles/`
 * Used in CI/CD pipelines
 
+## Inspect Profile
+
+Inspect a downloaded `.mobileprovision` file:
+
+```bash  theme={null}
+asc profiles inspect --path "./profile.mobileprovision"
+```
+
+Use JSON when scripts need to validate the embedded bundle ID, team ID, certificates, or entitlements:
+
+```bash  theme={null}
+asc profiles inspect --path "./profile.mobileprovision" --output json
+```
+
+Print entitlement key/value rows for quick terminal checks:
+
+```bash  theme={null}
+asc profiles inspect --path "./profile.mobileprovision" --entitlements
+```
+
+This command reads local disk only. It decodes the signed provisioning profile payload and reports identifiers, expiration, certificate fingerprints, device counts, and entitlement values.
+
 ### Install Profile
 
 ```bash  theme={null}
