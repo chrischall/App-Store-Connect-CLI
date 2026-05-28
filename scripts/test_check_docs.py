@@ -6,7 +6,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import check_release_docs
 import generate_winget_manifests
 import check_repo_docs
 import check_website_commands
@@ -1106,14 +1105,6 @@ class DocLinksTest(unittest.TestCase):
             allow_root_relative=True,
         )
         self.assertIsNone(normalized)
-
-
-class ReleaseDocsChecksTest(unittest.TestCase):
-    def test_release_docs_match_version_heading(self) -> None:
-        changelog = "## Changelog\n\n### v1.2.3\n"
-        self.assertTrue(check_release_docs.version_is_documented(changelog, "1.2.3"))
-        self.assertTrue(check_release_docs.version_is_documented(changelog, "v1.2.3"))
-        self.assertFalse(check_release_docs.version_is_documented(changelog, "1.2.4"))
 
 
 class HookChecksTest(unittest.TestCase):

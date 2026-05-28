@@ -37,9 +37,6 @@ jobs:
       - name: Self-test docs validators
         run: python3 scripts/test_check_docs.py
 
-      - name: Check release docs updated
-        run: make check-release-docs VERSION="${VERSION}"
-
       - name: Run release guardrails
         run: |
           export PATH="$(go env GOPATH)/bin:$PATH"

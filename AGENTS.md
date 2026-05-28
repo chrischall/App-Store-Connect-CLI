@@ -166,7 +166,7 @@ Canonical test rule: all test runs must use `ASC_BYPASS_KEYCHAIN=1` to avoid hos
 - Deprecations must include:
   - warning text in help/output,
   - tests covering old and new behavior during transition,
-  - changelog entry with upgrade path.
+  - release notes entry with upgrade path.
 
 ## Agent Explainability Contract
 

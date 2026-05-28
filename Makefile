@@ -215,15 +215,6 @@ check-website-docs:
 	python3 ./scripts/check_website_docs.py
 	python3 ./scripts/check_website_commands.py
 
-.PHONY: check-release-docs
-check-release-docs:
-	@if [ -z "$(VERSION)" ]; then \
-		echo "$(YELLOW)VERSION is required. Example: make check-release-docs VERSION=0.36.4$(NC)"; \
-		exit 1; \
-	fi
-	@echo "$(BLUE)Checking release docs for $(VERSION)...$(NC)"
-	python3 ./scripts/check_release_docs.py "$(VERSION)"
-
 .PHONY: check-docs
 check-docs: check-command-docs check-repo-docs check-website-docs
 
@@ -295,7 +286,6 @@ help:
 	@echo "  check-command-docs Validate docs command lists against live CLI help"
 	@echo "  check-repo-docs Validate local links in repository markdown docs"
 	@echo "  check-website-docs Validate Mintlify website navigation, links, and CLI examples"
-	@echo "  check-release-docs Validate website release docs for VERSION=<x.y.z>"
 	@echo "  check-docs     Run all documentation checks"
 	@echo "  clean          Clean build artifacts"
 	@echo "  install        Install binary"
