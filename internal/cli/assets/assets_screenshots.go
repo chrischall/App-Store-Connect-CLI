@@ -733,12 +733,31 @@ func limitScreenshotFanoutUploadFiles(localeAssets []screenshotLocaleAssetFiles,
 }
 
 func limitScreenshotUploadFilesForExistingSet(files []string, maxScreenshots int, existingScreenshots []asc.Resource[asc.AppScreenshotAttributes], replace bool, setID string) ([]string, error) {
-	if maxScreenshots <= 0 {
-		return files, nil
-	}
 	if replace {
+		if maxScreenshots <= 0 {
+			return files, nil
+		}
 		if len(files) > maxScreenshots {
 			return append([]string(nil), files[:maxScreenshots]...), nil
+		}
+		return files, nil
+	}
+
+	setLabel := strings.TrimSpace(setID)
+	if setLabel == "" {
+		setLabel = "target set"
+	}
+	if maxScreenshots <= 0 {
+		total := len(existingScreenshots) + len(files)
+		if total > appScreenshotSetMaxScreenshots {
+			return nil, fmt.Errorf(
+				"%s already has %d screenshot(s); uploading %d more would exceed App Store screenshot set limit %d. Pass --replace to replace existing screenshots or --max-screenshots %d to upload only the remaining slot(s)",
+				setLabel,
+				len(existingScreenshots),
+				len(files),
+				appScreenshotSetMaxScreenshots,
+				max(0, appScreenshotSetMaxScreenshots-len(existingScreenshots)),
+			)
 		}
 		return files, nil
 	}
@@ -747,10 +766,6 @@ func limitScreenshotUploadFilesForExistingSet(files []string, maxScreenshots int
 	if remaining <= 0 {
 		if len(files) == 0 {
 			return files, nil
-		}
-		setLabel := strings.TrimSpace(setID)
-		if setLabel == "" {
-			setLabel = "target set"
 		}
 		return nil, fmt.Errorf(
 			"%s already has %d screenshot(s); --max-screenshots %d leaves no upload slots. Pass --replace to replace existing screenshots or choose a higher limit up to %d",
@@ -1689,7 +1704,7 @@ func uploadScreenshotsWithConfig[T any](ctx context.Context, cfg screenshotUploa
 	}
 
 	existingScreenshots := make([]asc.Resource[asc.AppScreenshotAttributes], 0)
-	if (cfg.SkipExisting || cfg.Replace || (cfg.MaxScreenshots > 0 && !cfg.Replace)) && set.ID != "" {
+	if (cfg.SkipExisting || cfg.Replace || (!cfg.Replace && len(cfg.Files) > 0)) && set.ID != "" {
 		fetchCtx, fetchCancel := cfg.RequestContext(ctx)
 		existingResp, err := cfg.Client.GetAppScreenshots(fetchCtx, set.ID)
 		fetchCancel()

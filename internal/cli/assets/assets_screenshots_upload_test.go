@@ -83,6 +83,8 @@ func TestUploadScreenshotsDryRunReportsWouldUpload(t *testing.T) {
 		switch {
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersionLocalizations/LOC_123/appScreenshotSets":
 			return assetsJSONResponse(http.StatusOK, `{"data":[{"type":"appScreenshotSets","id":"set-1","attributes":{"screenshotDisplayType":"APP_IPHONE_65"}}],"links":{}}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appScreenshotSets/set-1/appScreenshots":
+			return assetsJSONResponse(http.StatusOK, `{"data":[],"links":{}}`)
 		default:
 			t.Fatalf("unexpected request in dry-run: %s %s", req.Method, req.URL.String())
 			return nil, nil
@@ -303,5 +305,47 @@ func TestExecuteAppScreenshotUploadMaxScreenshotsAccountsForExistingRemoteScreen
 	}
 	if result.Uploaded != appScreenshotSetMaxScreenshots-1 {
 		t.Fatalf("expected uploaded count 9, got %d", result.Uploaded)
+	}
+}
+
+func TestExecuteAppScreenshotUploadRejectsAppendAboveScreenshotLimit(t *testing.T) {
+	dir := t.TempDir()
+	files := []string{
+		writeAssetsTestPNG(t, dir, "01-home.png"),
+		writeAssetsTestPNG(t, dir, "02-home.png"),
+	}
+
+	origTransport := http.DefaultTransport
+	http.DefaultTransport = assetsUploadRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersionLocalizations/LOC_123/appScreenshotSets":
+			return assetsJSONResponse(http.StatusOK, `{"data":[{"type":"appScreenshotSets","id":"set-1","attributes":{"screenshotDisplayType":"APP_IPHONE_65"}}],"links":{}}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appScreenshotSets/set-1/appScreenshots":
+			return assetsJSONResponse(http.StatusOK, `{"data":[{"type":"appScreenshots","id":"old-1"},{"type":"appScreenshots","id":"old-2"},{"type":"appScreenshots","id":"old-3"},{"type":"appScreenshots","id":"old-4"},{"type":"appScreenshots","id":"old-5"},{"type":"appScreenshots","id":"old-6"},{"type":"appScreenshots","id":"old-7"},{"type":"appScreenshots","id":"old-8"},{"type":"appScreenshots","id":"old-9"}],"links":{}}`)
+		case req.Method == http.MethodPost && req.URL.Path == "/v1/appScreenshots":
+			t.Fatal("must reject before creating screenshots when append would exceed the set limit")
+			return nil, nil
+		default:
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
+			return nil, nil
+		}
+	})
+	t.Cleanup(func() {
+		http.DefaultTransport = origTransport
+	})
+
+	client := newAssetsUploadTestClient(t)
+	_, err := executeAppScreenshotUpload(context.Background(), screenshotUploadConfig[asc.AppScreenshotUploadResult]{
+		Client:         client,
+		LocalizationID: "LOC_123",
+		DisplayType:    "APP_IPHONE_65",
+		Files:          files,
+		Access:         appStoreVersionScreenshotSetAccess,
+	}, "")
+	if err == nil {
+		t.Fatal("expected screenshot set limit error")
+	}
+	if !strings.Contains(err.Error(), "would exceed App Store screenshot set limit 10") {
+		t.Fatalf("expected screenshot set limit error, got %v", err)
 	}
 }

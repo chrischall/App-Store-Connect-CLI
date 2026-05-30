@@ -144,7 +144,7 @@ func prepareAppScreenshotUpload(ctx context.Context, cfg screenshotUploadConfig[
 	}
 
 	existingScreenshots := make([]asc.Resource[asc.AppScreenshotAttributes], 0)
-	if (cfg.SkipExisting || cfg.Replace || (cfg.MaxScreenshots > 0 && !cfg.Replace)) && set.ID != "" {
+	if (cfg.SkipExisting || cfg.Replace || (!cfg.Replace && len(cfg.Files) > 0)) && set.ID != "" {
 		fetchCtx, fetchCancel := cfg.RequestContext(ctx)
 		existingResp, err := cfg.Client.GetAppScreenshots(fetchCtx, set.ID)
 		fetchCancel()
