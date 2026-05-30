@@ -257,23 +257,26 @@ func TestExecuteScreenshotUploadCommandRejectsMoreThanTenScreenshotsBeforeAuth(t
 
 func TestExecuteScreenshotUploadCommandRejectsMaxScreenshotsAboveAppleLimit(t *testing.T) {
 	clientCalled := false
-	_, err := executeScreenshotUploadCommand(context.Background(), screenshotUploadCommandOptions{
-		VersionLocalizationID: "LOC_ID",
-		Path:                  "unused",
-		DeviceType:            "IPHONE_65",
-		MaxScreenshots:        11,
-	}, screenshotUploadDependencies{
-		GetClient: func() (*asc.Client, error) {
-			clientCalled = true
-			return &asc.Client{}, nil
-		},
+	var err error
+	_, stderr := captureOutput(t, func() {
+		_, err = executeScreenshotUploadCommand(context.Background(), screenshotUploadCommandOptions{
+			VersionLocalizationID: "LOC_ID",
+			Path:                  "unused",
+			DeviceType:            "IPHONE_65",
+			MaxScreenshots:        11,
+		}, screenshotUploadDependencies{
+			GetClient: func() (*asc.Client, error) {
+				clientCalled = true
+				return &asc.Client{}, nil
+			},
+		})
 	})
 
-	if err == nil {
-		t.Fatal("expected --max-screenshots validation error")
+	if !errors.Is(err, flag.ErrHelp) {
+		t.Fatalf("expected flag.ErrHelp, got %v", err)
 	}
-	if !strings.Contains(err.Error(), "--max-screenshots cannot exceed 10") {
-		t.Fatalf("expected max-screenshots limit error, got %v", err)
+	if !strings.Contains(stderr, "--max-screenshots cannot exceed 10") {
+		t.Fatalf("expected max-screenshots limit error, got %q", stderr)
 	}
 	if clientCalled {
 		t.Fatal("expected max-screenshots validation before auth/client creation")
@@ -305,7 +308,6 @@ func TestExecuteScreenshotUploadCommandMaxScreenshotsCapsSortedFiles(t *testing.
 			}, nil
 		},
 	})
-
 	if err != nil {
 		t.Fatalf("executeScreenshotUploadCommand() error: %v", err)
 	}
