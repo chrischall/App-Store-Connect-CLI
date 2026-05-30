@@ -183,6 +183,12 @@ asc screenshots upload --version-localization "LOC_ID" \
   --path "./screenshots/iphone" \
   --device-type "IPHONE_65"
 
+# Upload the first 10 sorted files when the source folder has extras
+asc screenshots upload --version-localization "LOC_ID" \
+  --path "./screenshots/iphone" \
+  --device-type "IPHONE_65" \
+  --max-screenshots 10
+
 # Fan out across locale directories in one run
 asc screenshots upload --app "123456789" \
   --version "1.2.3" \
@@ -202,6 +208,8 @@ uploaded from each locale subtree. A device-rooted layout such as
 
 * Format: PNG or JPEG
 * Exact dimensions must match the device type specification
+* A screenshot set can contain at most 10 images; use `--max-screenshots 10`
+  to upload the first 10 sorted files when a source folder contains extras
 * Use `asc screenshots sizes` to verify required dimensions
 * Partial failures write a retry artifact under `.asc/reports/screenshots-upload/`
 

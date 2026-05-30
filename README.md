@@ -257,7 +257,7 @@ Uploading screenshots for a single locale:
 asc apps list
 asc versions list --app "APP_ID"
 asc localizations list --version "VERSION_ID" --output json --locale "en-US" | jsonpp
-asc screenshots upload --version-localization "VERSION_LOCALIZATION_ID" --path "./screenshots/en-US" --device-type "IPHONE_65" --replace
+asc screenshots upload --version-localization "VERSION_LOCALIZATION_ID" --path "./screenshots/en-US" --device-type "IPHONE_65" --replace --max-screenshots 10
 ```
 
 `VERSION_LOCALIZATION_ID` is the App Store version localization resource ID
@@ -282,7 +282,7 @@ asc workflow run --dry-run testflight_beta VERSION:1.2.3
 
 See [docs/WORKFLOWS.md](docs/WORKFLOWS.md) for a copyable `.asc/workflow.json`
 and `ExportOptions.plist` that use `asc builds next-build-number`, `asc xcode archive`,
-`asc xcode export`, and `asc publish testflight --group ... --wait`. Add
+`asc xcode export --timeout 10m`, and `asc publish testflight --group ... --wait`. Add
 `--submit --confirm` when distributing to an external TestFlight group that needs
 beta app review submission.
 
