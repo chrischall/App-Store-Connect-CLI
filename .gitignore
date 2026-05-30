@@ -52,3 +52,7 @@ worktrees/
 # ASC Studio generated artifacts
 /apps/studio/build/bin/
 /apps/studio/frontend/package.json.md5
+
+# Python bytecode (scripts/ helpers compile these when run)
+__pycache__/
+*.pyc

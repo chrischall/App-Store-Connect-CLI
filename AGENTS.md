@@ -90,6 +90,26 @@ Canonical test rule: all test runs must use `ASC_BYPASS_KEYCHAIN=1` to avoid hos
 - If the exact label is ambiguous, prefer the lower priority/difficulty and note the
   assumption in the handoff.
 
+## Release Announcements
+
+- When the user asks for a new release (e.g., "do a new release of X.Y.Z"), after the release
+  is tagged/published also create a social announcement **draft** via the Typefully MCP
+  (`TypefullyMCP`, configured in the user's Claude config). Match the user's established
+  release-post format.
+- **One post, no emojis** — never a thread.
+- **All five platforms enabled**: X, LinkedIn, Mastodon, Threads, Bluesky (the "five-platform"
+  release draft). Discover the user's social set via `typefully_list_social_sets`; send the same
+  text to every platform.
+- **Structure** (model on the most recent prior release draft via `typefully_list_drafts` ->
+  `typefully_get_draft`):
+  - Opener: `App Store Connect CLI X.Y.Z is out!`
+  - `Main improvement is <command/feature>` + one short benefit line
+  - A compact `Also: ...` line for secondary changes
+  - Plain repo link: `https://github.com/rorkai/App-Store-Connect-CLI`
+- Keep the text under Bluesky's 300-character limit.
+- **Save as a draft only** — do not schedule or publish unless the user explicitly asks. Share
+  the draft's review URL in the handoff.
+
 ## Testing Discipline
 
 - Use TDD for behavior changes: bugs, refactors that alter behavior, and new features.
