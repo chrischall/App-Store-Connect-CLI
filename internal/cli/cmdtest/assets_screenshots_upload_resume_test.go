@@ -52,6 +52,10 @@ func TestRunScreenshotsUploadResumeRejectsExecutionModeFlags(t *testing.T) {
 			name: "dry-run",
 			args: []string{"--dry-run"},
 		},
+		{
+			name: "max-screenshots",
+			args: []string{"--max-screenshots", "5"},
+		},
 	}
 
 	for _, tt := range tests {

@@ -593,11 +593,7 @@ func executeScreenshotUploadCommand(ctx context.Context, opts screenshotUploadCo
 	apiDisplayType := asc.CanonicalScreenshotDisplayTypeForAPI(displayType)
 
 	if locID != "" {
-		files, err := collectAssetFiles(pathValue)
-		if err != nil {
-			return nil, err
-		}
-		files, err = limitScreenshotUploadFiles(files, opts.MaxScreenshots, pathValue)
+		files, err := collectScreenshotUploadFiles(pathValue, opts.MaxScreenshots)
 		if err != nil {
 			return nil, err
 		}
@@ -628,7 +624,7 @@ func executeScreenshotUploadCommand(ctx context.Context, opts screenshotUploadCo
 		return nil, shared.UsageError(err.Error())
 	}
 
-	localeAssets, err := collectLocaleAssetFiles(pathValue, apiDisplayType)
+	localeAssets, err := collectLocaleAssetFilesWithLimit(pathValue, apiDisplayType, opts.MaxScreenshots)
 	if err != nil {
 		return nil, err
 	}
@@ -675,6 +671,27 @@ func executeScreenshotUploadCommand(ctx context.Context, opts screenshotUploadCo
 		return &result, err
 	}
 	return &result, nil
+}
+
+func collectScreenshotUploadFiles(path string, maxScreenshots int) ([]string, error) {
+	files, err := collectAssetPaths(path)
+	if err != nil {
+		return nil, err
+	}
+	if len(files) == 0 {
+		return nil, fmt.Errorf("no files found in %q", path)
+	}
+
+	files, err = limitScreenshotUploadFiles(files, maxScreenshots, path)
+	if err != nil {
+		return nil, err
+	}
+	for _, filePath := range files {
+		if err := asc.ValidateImageFile(filePath); err != nil {
+			return nil, err
+		}
+	}
+	return files, nil
 }
 
 func limitScreenshotUploadFiles(files []string, maxScreenshots int, source string) ([]string, error) {
@@ -802,6 +819,10 @@ func uploadScreenshotsFanout(ctx context.Context, cfg screenshotUploadFanoutConf
 }
 
 func collectLocaleAssetFiles(rootPath, displayType string) ([]screenshotLocaleAssetFiles, error) {
+	return collectLocaleAssetFilesWithLimit(rootPath, displayType, 0)
+}
+
+func collectLocaleAssetFilesWithLimit(rootPath, displayType string, maxScreenshots int) ([]screenshotLocaleAssetFiles, error) {
 	info, err := os.Lstat(rootPath)
 	if err != nil {
 		return nil, err
@@ -857,7 +878,7 @@ func collectLocaleAssetFiles(rootPath, displayType string) ([]screenshotLocaleAs
 				continue
 			}
 		}
-		files, err := collectLocaleAssetFilesRecursive(entryPath, displayType)
+		files, err := collectLocaleAssetFilesRecursiveWithLimit(entryPath, displayType, maxScreenshots)
 		if err != nil {
 			return nil, fmt.Errorf("locale %s: %w", locale, err)
 		}
@@ -883,10 +904,12 @@ func collectLocaleAssetFiles(rootPath, displayType string) ([]screenshotLocaleAs
 type screenshotMatchWalkOptions struct {
 	ignoreInvalidFiles bool
 	ignoreSymlinks     bool
+	maxMatches         int
 	onMatch            func(path string) error
 }
 
 func walkMatchingScreenshotFiles(rootPath, displayType string, opts screenshotMatchWalkOptions) error {
+	matchCount := 0
 	return filepath.WalkDir(rootPath, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -914,29 +937,41 @@ func walkMatchingScreenshotFiles(rootPath, displayType string, opts screenshotMa
 		if !info.Mode().IsRegular() || !isSupportedScreenshotUploadFile(path) {
 			return nil
 		}
+		if opts.maxMatches > 0 && matchCount >= opts.maxMatches {
+			return nil
+		}
 		if err := asc.ValidateImageFile(path); err != nil {
 			if opts.ignoreInvalidFiles {
 				return nil
 			}
 			return err
 		}
-		matches, err := screenshotMatchesDisplayType(path, displayType)
+		isMatch, err := screenshotMatchesDisplayType(path, displayType)
 		if err != nil {
 			if opts.ignoreInvalidFiles {
 				return nil
 			}
 			return err
 		}
-		if !matches || opts.onMatch == nil {
+		if !isMatch || opts.onMatch == nil {
 			return nil
 		}
-		return opts.onMatch(path)
+		if err := opts.onMatch(path); err != nil {
+			return err
+		}
+		matchCount++
+		return nil
 	})
 }
 
 func collectLocaleAssetFilesRecursive(rootPath, displayType string) ([]string, error) {
+	return collectLocaleAssetFilesRecursiveWithLimit(rootPath, displayType, 0)
+}
+
+func collectLocaleAssetFilesRecursiveWithLimit(rootPath, displayType string, maxScreenshots int) ([]string, error) {
 	files := make([]string, 0)
 	err := walkMatchingScreenshotFiles(rootPath, displayType, screenshotMatchWalkOptions{
+		maxMatches: maxScreenshots,
 		onMatch: func(path string) error {
 			files = append(files, path)
 			return nil
