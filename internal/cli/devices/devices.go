@@ -324,6 +324,14 @@ Examples:
 			requestCtx, cancel := shared.ContextWithTimeout(ctx)
 			defer cancel()
 
+			existingDevice, err := findExistingDeviceByNormalizedUDID(requestCtx, client, udidValue, platformValue)
+			if err != nil {
+				return fmt.Errorf("devices register: failed to check existing devices: %w", err)
+			}
+			if existingDevice != nil {
+				return shared.PrintOutput(existingDevice, *output.Output, *output.Pretty)
+			}
+
 			attrs := asc.DeviceCreateAttributes{
 				Name:     nameValue,
 				UDID:     udidValue,
@@ -338,6 +346,48 @@ Examples:
 			return shared.PrintOutput(device, *output.Output, *output.Pretty)
 		},
 	}
+}
+
+func findExistingDeviceByNormalizedUDID(ctx context.Context, client *asc.Client, udidValue, platformValue string) (*asc.DeviceResponse, error) {
+	targetUDID := normalizeDeviceUDIDForComparison(udidValue)
+	if targetUDID == "" {
+		return nil, nil
+	}
+
+	firstPage, err := client.GetDevices(
+		ctx,
+		asc.WithDevicesPlatforms([]string{platformValue}),
+		asc.WithDevicesFields([]string{"name", "udid", "platform", "status"}),
+		asc.WithDevicesLimit(200),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	pages, err := asc.PaginateAll(ctx, firstPage, func(ctx context.Context, nextURL string) (asc.PaginatedResponse, error) {
+		return client.GetDevices(ctx, asc.WithDevicesNextURL(nextURL))
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	devices, ok := pages.(*asc.DevicesResponse)
+	if !ok || devices == nil {
+		return nil, nil
+	}
+	for _, device := range devices.Data {
+		if normalizeDeviceUDIDForComparison(device.Attributes.UDID) == targetUDID {
+			return &asc.DeviceResponse{Data: device}, nil
+		}
+	}
+	return nil, nil
+}
+
+func normalizeDeviceUDIDForComparison(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.ReplaceAll(value, "-", "")
+	value = strings.ReplaceAll(value, ":", "")
+	return strings.ToUpper(value)
 }
 
 // DevicesUpdateCommand returns the devices update subcommand.
