@@ -116,6 +116,13 @@ func payloadFromCredentials(credentials Credentials, includePEM bool) (credentia
 
 // GetCredentialsWithSource resolves Apple Ads credentials by profile.
 func GetCredentialsWithSource(profile string) (Credentials, string, error) {
+	if strings.TrimSpace(profile) != "" {
+		if selected, ok, err := findCredentialInActiveConfig(profile); err != nil {
+			return Credentials{}, "", err
+		} else if ok {
+			return selected.Credentials, "config", nil
+		}
+	}
 	if !ShouldBypassKeychain() {
 		credentials, err := listFromKeychain()
 		if err == nil {
@@ -458,6 +465,26 @@ func listFromConfig() ([]StoredCredential, error) {
 	if err != nil {
 		return nil, err
 	}
+	return storedCredentialsFromConfig(cfg, path), nil
+}
+
+func findCredentialInActiveConfig(profile string) (StoredCredential, bool, error) {
+	path, err := config.Path()
+	if err != nil {
+		return StoredCredential{}, false, err
+	}
+	cfg, err := config.LoadAt(path)
+	if err != nil {
+		if errors.Is(err, config.ErrNotFound) {
+			return StoredCredential{}, false, nil
+		}
+		return StoredCredential{}, false, err
+	}
+	selected, ok := selectCredential(profile, storedCredentialsFromConfig(cfg, path))
+	return selected, ok, nil
+}
+
+func storedCredentialsFromConfig(cfg *config.Config, path string) []StoredCredential {
 	credentials := make([]StoredCredential, 0, len(cfg.Ads.Keys))
 	for _, cred := range cfg.Ads.Keys {
 		payload := credentialPayload{
@@ -469,7 +496,7 @@ func listFromConfig() ([]StoredCredential, error) {
 		}
 		credentials = append(credentials, storedFromPayload(cred.Name, payload, "config", path))
 	}
-	return credentials, nil
+	return credentials
 }
 
 func getCredentialFromConfig(profile string) (StoredCredential, error) {

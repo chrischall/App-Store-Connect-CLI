@@ -92,6 +92,48 @@ func TestGetCredentialsFallsBackToConfigDefaultWhenKeychainHasNoDefault(t *testi
 	}
 }
 
+func TestGetCredentialsPrefersActiveConfigProfileOverSameNamedKeychainProfile(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	t.Setenv("ASC_CONFIG_PATH", configPath)
+	configCreds := testAdsCredentials()
+	configCreds.ClientID = "CONFIG_CLIENT"
+	configCreds.OrgID = "CONFIG_ORG"
+	if err := StoreCredentialsConfigAt("shared", configCreds, configPath); err != nil {
+		t.Fatalf("StoreCredentialsConfigAt() error: %v", err)
+	}
+
+	keychainPayload, err := json.Marshal(credentialPayload{
+		ClientID:       "KEYCHAIN_CLIENT",
+		TeamID:         "KEYCHAIN_TEAM",
+		KeyID:          "KEYCHAIN_KEY",
+		PrivateKeyPath: "keychain-private-key.pem",
+		OrgID:          "KEYCHAIN_ORG",
+	})
+	if err != nil {
+		t.Fatalf("Marshal() error: %v", err)
+	}
+	original := openKeyring
+	openKeyring = func() (keyring.Keyring, error) {
+		return fakeAdsKeyring{
+			items: map[string]keyring.Item{
+				keyringKey("shared"): {
+					Key:  keyringKey("shared"),
+					Data: keychainPayload,
+				},
+			},
+		}, nil
+	}
+	t.Cleanup(func() { openKeyring = original })
+
+	credentials, source, err := GetCredentialsWithSource("shared")
+	if err != nil {
+		t.Fatalf("GetCredentialsWithSource() error: %v", err)
+	}
+	if source != "config" || credentials.ClientID != "CONFIG_CLIENT" || credentials.OrgID != "CONFIG_ORG" {
+		t.Fatalf("credentials = %+v source = %q, want active config profile", credentials, source)
+	}
+}
+
 func TestBypassKeychainRemovalSkipsKeychain(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	t.Setenv("ASC_CONFIG_PATH", configPath)
