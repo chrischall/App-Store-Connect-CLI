@@ -85,6 +85,9 @@ func buildNodeCommand(node *commandNode, parentPath []string) *ffcli.Command {
 	for _, name := range sortedChildNames(node) {
 		subcommands = append(subcommands, buildNodeCommand(node.children[name], path))
 	}
+	if len(path) == 1 && path[0] == "reports" {
+		subcommands = append(subcommands, ReportsPresetCommand())
+	}
 
 	command := &ffcli.Command{
 		Name:        node.name,
