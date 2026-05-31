@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/peterbourgon/ff/v3/ffcli"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 )
 
@@ -167,6 +168,29 @@ func TestBuildsUpdateCommand_Shape(t *testing.T) {
 	encFlag := cmd.FlagSet.Lookup("uses-non-exempt-encryption")
 	if encFlag == nil {
 		t.Fatal("expected --uses-non-exempt-encryption flag to be defined")
+	}
+}
+
+func TestBuildSelectorCommandsExposeExcludeExpiredFlags(t *testing.T) {
+	tests := []struct {
+		name string
+		cmd  func() *ffcli.Command
+	}{
+		{name: "add-groups", cmd: BuildsAddGroupsCommand},
+		{name: "dsyms", cmd: BuildsDsymsCommand},
+		{name: "update", cmd: BuildsUpdateCommand},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			flags := test.cmd().FlagSet
+			if flags.Lookup("exclude-expired") == nil {
+				t.Fatal("expected --exclude-expired flag to be defined")
+			}
+			if flags.Lookup("not-expired") == nil {
+				t.Fatal("expected --not-expired flag to be defined")
+			}
+		})
 	}
 }
 
