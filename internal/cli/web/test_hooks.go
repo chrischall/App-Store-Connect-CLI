@@ -25,9 +25,12 @@ func SetResolveWebSession(fn any) func() {
 		panic(fmt.Sprintf("unsupported resolve session hook type %T", fn))
 	}
 	prev := resolveSessionFn
+	prevNoPersist := resolveSessionWithoutPersistFn
 	resolveSessionFn = fn
+	resolveSessionWithoutPersistFn = fn
 	return func() {
 		resolveSessionFn = prev
+		resolveSessionWithoutPersistFn = prevNoPersist
 	}
 }
 
