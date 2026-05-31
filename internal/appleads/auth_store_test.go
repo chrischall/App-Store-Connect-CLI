@@ -208,6 +208,17 @@ func TestBypassKeychainRemovalSkipsKeychain(t *testing.T) {
 	}
 }
 
+func TestShouldBypassKeychainAcceptsDocumentedTruthyValues(t *testing.T) {
+	for _, value := range []string{"1", "true", "yes", "y", "on"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("ASC_ADS_BYPASS_KEYCHAIN", value)
+			if !ShouldBypassKeychain() {
+				t.Fatalf("ShouldBypassKeychain() = false for %q, want true", value)
+			}
+		})
+	}
+}
+
 func TestRemoveCredentialsReturnsNotFoundWhenProfileMissing(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	t.Setenv("ASC_CONFIG_PATH", configPath)

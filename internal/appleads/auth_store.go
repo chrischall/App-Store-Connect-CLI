@@ -42,7 +42,7 @@ type credentialPayload struct {
 func ShouldBypassKeychain() bool {
 	value := strings.ToLower(strings.TrimSpace(os.Getenv(adsBypassKeychainEnvVar)))
 	switch value {
-	case "1", "true", "yes", "on":
+	case "1", "true", "yes", "y", "on":
 		return true
 	default:
 		return false

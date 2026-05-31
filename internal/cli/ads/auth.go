@@ -98,7 +98,7 @@ Examples:
 				return shared.UsageError("--skip-validation and --network are mutually exclusive")
 			}
 			if *local && !*bypassKeychain && !appleads.ShouldBypassKeychain() {
-				return shared.UsageError("--local requires --bypass-keychain or ASC_ADS_BYPASS_KEYCHAIN set to 1/true/yes/on")
+				return shared.UsageError("--local requires --bypass-keychain or ASC_ADS_BYPASS_KEYCHAIN set to 1/true/yes/y/on")
 			}
 			if !*skipValidation {
 				if err := authsvc.ValidateKeyFile(*privateKey); err != nil {
