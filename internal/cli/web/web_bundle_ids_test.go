@@ -97,6 +97,9 @@ func TestWebBundleIDCapabilitiesSyncAppClipCallsPrivateSync(t *testing.T) {
 	if gotReq.BundleID != "clip-1" || gotReq.ParentBundleID != "parent-1" || gotReq.Capability != "PUSH_NOTIFICATIONS" {
 		t.Fatalf("unexpected sync request: %+v", gotReq)
 	}
+	if !gotReq.SettingsProvided {
+		t.Fatal("expected settings to be marked as explicitly provided")
+	}
 	if len(gotReq.Settings) != 1 || gotReq.Settings[0].Key != "PUSH_NOTIFICATION_FEATURES" {
 		t.Fatalf("expected parsed settings, got %+v", gotReq.Settings)
 	}

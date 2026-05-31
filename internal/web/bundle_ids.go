@@ -33,11 +33,12 @@ type BundleIDCapabilitySetting struct {
 // AppClipBundleIDCapabilitySyncRequest updates an App Clip Bundle ID capability set
 // through Apple's web-session bundleIds patch payload.
 type AppClipBundleIDCapabilitySyncRequest struct {
-	BundleID       string
-	ParentBundleID string
-	Capability     string
-	Enabled        bool
-	Settings       []BundleIDCapabilitySetting
+	BundleID         string
+	ParentBundleID   string
+	Capability       string
+	Enabled          bool
+	Settings         []BundleIDCapabilitySetting
+	SettingsProvided bool
 }
 
 // AppClipBundleIDCapabilitySyncResult summarizes the private capability sync.
@@ -159,12 +160,9 @@ func buildAppClipBundleIDCapabilityPatchRequest(current webBundleIDResponse, req
 
 	capability := webBundleIDCapabilityRelationship{
 		Type: "bundleIdCapabilities",
-		Attributes: struct {
-			Enabled  bool                        `json:"enabled"`
-			Settings []BundleIDCapabilitySetting `json:"settings"`
-		}{
-			Enabled:  req.Enabled,
-			Settings: req.Settings,
+		Attributes: map[string]any{
+			"enabled":  req.Enabled,
+			"settings": req.Settings,
 		},
 		Relationships: map[string]webBundleIDRelationshipData{
 			"capability": {
@@ -175,7 +173,7 @@ func buildAppClipBundleIDCapabilityPatchRequest(current webBundleIDResponse, req
 			},
 		},
 	}
-	payload.Data.Relationships.BundleIDCapabilities.Data = appendPreservedBundleIDCapabilities(currentBundleIDCapabilities(current), capability)
+	payload.Data.Relationships.BundleIDCapabilities.Data = appendPreservedBundleIDCapabilities(currentBundleIDCapabilities(current), capability, req.SettingsProvided)
 	return payload
 }
 
@@ -206,7 +204,7 @@ func currentBundleIDCapabilities(current webBundleIDResponse) []webBundleIDCapab
 	return capabilities
 }
 
-func appendPreservedBundleIDCapabilities(existing []webBundleIDCapabilityRelationship, synced webBundleIDCapabilityRelationship) []webBundleIDCapabilityRelationship {
+func appendPreservedBundleIDCapabilities(existing []webBundleIDCapabilityRelationship, synced webBundleIDCapabilityRelationship, settingsProvided bool) []webBundleIDCapabilityRelationship {
 	capabilityID := synced.capabilityID()
 	capabilities := make([]webBundleIDCapabilityRelationship, 0, len(existing)+1)
 	for _, capability := range existing {
@@ -214,9 +212,28 @@ func appendPreservedBundleIDCapabilities(existing []webBundleIDCapabilityRelatio
 			if synced.ID == "" {
 				synced.ID = capability.ID
 			}
+			if !settingsProvided {
+				preserveBundleIDCapabilitySettings(capability, &synced)
+			}
 			continue
 		}
 		capabilities = append(capabilities, capability)
 	}
 	return append(capabilities, synced)
+}
+
+func preserveBundleIDCapabilitySettings(existing webBundleIDCapabilityRelationship, synced *webBundleIDCapabilityRelationship) {
+	existingAttributes, ok := existing.Attributes.(map[string]any)
+	if !ok {
+		return
+	}
+	existingSettings, ok := existingAttributes["settings"]
+	if !ok {
+		return
+	}
+	syncedAttributes, ok := synced.Attributes.(map[string]any)
+	if !ok {
+		return
+	}
+	syncedAttributes["settings"] = existingSettings
 }

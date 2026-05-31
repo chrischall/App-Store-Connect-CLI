@@ -165,7 +165,7 @@ func TestSyncAppClipBundleIDCapabilityPreservesExistingCapabilities(t *testing.T
 							{
 								"id":"existing-push",
 								"type":"bundleIdCapabilities",
-								"attributes":{"enabled":false,"settings":[]},
+								"attributes":{"enabled":false,"settings":[{"key":"PUSH_NOTIFICATION_FEATURES"}]},
 								"relationships":{
 									"capability":{"data":{"type":"capabilities","id":"PUSH_NOTIFICATIONS"}}
 								}
@@ -224,5 +224,17 @@ func TestSyncAppClipBundleIDCapabilityPreservesExistingCapabilities(t *testing.T
 	}
 	if caps[1].Relationships["parentBundleId"].Data != (relationshipData{Type: "bundleIds", ID: "parent-bundle"}) {
 		t.Fatalf("unexpected synced parentBundleId relationship: %+v", caps[1].Relationships["parentBundleId"].Data)
+	}
+	attributes, ok := caps[1].Attributes.(map[string]any)
+	if !ok {
+		t.Fatalf("expected synced attributes map, got %T", caps[1].Attributes)
+	}
+	settings, ok := attributes["settings"].([]any)
+	if !ok || len(settings) != 1 {
+		t.Fatalf("expected existing settings to be preserved, got %+v", attributes["settings"])
+	}
+	setting, ok := settings[0].(map[string]any)
+	if !ok || setting["key"] != "PUSH_NOTIFICATION_FEATURES" {
+		t.Fatalf("expected existing PUSH_NOTIFICATION_FEATURES setting, got %+v", settings[0])
 	}
 }

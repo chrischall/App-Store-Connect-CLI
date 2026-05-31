@@ -132,11 +132,12 @@ Examples:
 			err = withWebSpinner("Syncing App Clip Bundle ID capability", func() error {
 				var err error
 				result, err = syncAppClipBundleIDCapabilityFn(requestCtx, client, webcore.AppClipBundleIDCapabilitySyncRequest{
-					BundleID:       resolvedBundleID,
-					ParentBundleID: resolvedParentBundleID,
-					Capability:     resolvedCapability,
-					Enabled:        true,
-					Settings:       settings,
+					BundleID:         resolvedBundleID,
+					ParentBundleID:   resolvedParentBundleID,
+					Capability:       resolvedCapability,
+					Enabled:          true,
+					Settings:         settings,
+					SettingsProvided: strings.TrimSpace(*settingsJSON) != "",
 				})
 				return err
 			})
