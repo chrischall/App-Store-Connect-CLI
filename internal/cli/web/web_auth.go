@@ -58,6 +58,7 @@ var (
 	webLoginWithClientFn                     = webcore.LoginWithClient
 	selectWebProviderFn                      = webcore.SelectProvider
 	resolveSessionFn               any       = resolveSession
+	resolveSessionWithoutPersistFn any       = resolveSessionWithoutPersist
 	twoFactorStatusWriter          io.Writer = os.Stderr
 	sessionExpiredWriter           io.Writer = os.Stderr
 	sessionCacheWarningWriter      io.Writer = os.Stderr
@@ -470,7 +471,6 @@ func tryAutoReauthWebSession(ctx context.Context, appleID, password string) (*we
 		// best-effort and may not preserve enough cookie metadata for relogin.
 		return nil, "", false, nil
 	}
-	_ = persistWebSessionFn(session)
 	return session, "auto-reauth", true, nil
 }
 
@@ -504,6 +504,7 @@ type webSessionResolveOptions struct {
 	promptAppleID        func(*string) error
 	resolvePassword      func(context.Context, string) (string, error)
 	persistFresh         func(*webcore.AuthSession) error
+	persistAutoReauth    func(*webcore.AuthSession)
 	twoFactorCodeCommand string
 }
 
@@ -549,6 +550,9 @@ func resolveWebSession(ctx context.Context, appleID, password, twoFactorCode str
 			}
 			return nil, "", false, fmt.Errorf("web auth auto-reauth failed: %w", err)
 		} else if ok {
+			if opts.persistAutoReauth != nil {
+				opts.persistAutoReauth(session)
+			}
 			return session, source, true, nil
 		}
 		if !expiredNoticePrinted {
@@ -628,6 +632,10 @@ func persistFreshResolvedSession(session *webcore.AuthSession) error {
 	return nil
 }
 
+func persistAutoReauthResolvedSession(session *webcore.AuthSession) {
+	_ = persistWebSessionFn(session)
+}
+
 func selectResolvedWebSessionProvider(ctx context.Context, session *webcore.AuthSession, selection webcore.ProviderSelection) error {
 	if selection.ProviderID == 0 && strings.TrimSpace(selection.PublicProviderID) == "" {
 		return nil
@@ -649,8 +657,31 @@ func resolveSession(ctx context.Context, appleID, password, twoFactorCode string
 	return resolveWebSession(ctx, appleID, password, twoFactorCode, webSessionResolveOptions{
 		resolvePassword:      resolveSessionPassword,
 		persistFresh:         persistFreshResolvedSession,
+		persistAutoReauth:    persistAutoReauthResolvedSession,
 		twoFactorCodeCommand: command,
 	})
+}
+
+func resolveSessionWithoutPersist(ctx context.Context, appleID, password, twoFactorCode string, twoFactorCodeCommand ...string) (*webcore.AuthSession, string, error) {
+	command := ""
+	if len(twoFactorCodeCommand) > 0 {
+		command = twoFactorCodeCommand[0]
+	}
+	return resolveWebSession(ctx, appleID, password, twoFactorCode, webSessionResolveOptions{
+		resolvePassword:      resolveSessionPassword,
+		twoFactorCodeCommand: command,
+	})
+}
+
+func hasProviderSelection(selection webcore.ProviderSelection) bool {
+	return selection.ProviderID != 0 || strings.TrimSpace(selection.PublicProviderID) != ""
+}
+
+func callResolveSessionForProviderSelection(ctx context.Context, appleID, password, twoFactorCode, twoFactorCodeCommand string, selection webcore.ProviderSelection) (*webcore.AuthSession, string, error) {
+	if !hasProviderSelection(selection) {
+		return callResolveSessionFn(ctx, appleID, password, twoFactorCode, twoFactorCodeCommand)
+	}
+	return callSessionResolverHook(ctx, resolveSessionWithoutPersistFn, "resolveSessionWithoutPersistFn", appleID, password, twoFactorCode, twoFactorCodeCommand)
 }
 
 // WebAuthCommand returns the detached web auth command group.
@@ -734,13 +765,13 @@ Examples:
 			defer cancel()
 
 			warnDeprecatedTwoFactorCodeFlag(*twoFactorCode)
-			session, source, err := callResolveSessionFn(requestCtx, *appleID, "", *twoFactorCode, *twoFactorCodeCommand)
-			if err != nil {
-				return err
-			}
 			selection := webcore.ProviderSelection{
 				ProviderID:       *providerID,
 				PublicProviderID: *publicProviderID,
+			}
+			session, source, err := callResolveSessionForProviderSelection(requestCtx, *appleID, "", *twoFactorCode, *twoFactorCodeCommand, selection)
+			if err != nil {
+				return err
 			}
 			if err := selectResolvedWebSessionProvider(requestCtx, session, selection); err != nil {
 				return err

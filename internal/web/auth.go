@@ -1050,6 +1050,17 @@ func resolveProviderSelection(info *sessionInfo, selection ProviderSelection) (s
 		provider := providers[i]
 		idMatches := selection.ProviderID != 0 && provider.ProviderID == selection.ProviderID
 		publicMatches := publicID != "" && strings.EqualFold(strings.TrimSpace(provider.PublicProviderID), publicID)
+		if selection.ProviderID != 0 && publicID != "" {
+			switch {
+			case idMatches && publicMatches:
+				matched = &provider
+			case idMatches:
+				return sessionProviderInfo{}, fmt.Errorf("provider selection mismatch: provider-id %d is %q, not %q", selection.ProviderID, strings.TrimSpace(provider.PublicProviderID), publicID)
+			case publicMatches:
+				return sessionProviderInfo{}, fmt.Errorf("provider selection mismatch: public-provider-id %q is provider-id %d, not %d", publicID, provider.ProviderID, selection.ProviderID)
+			}
+			continue
+		}
 		switch {
 		case idMatches && publicID != "" && !publicMatches:
 			return sessionProviderInfo{}, fmt.Errorf("provider selection mismatch: provider-id %d is %q, not %q", selection.ProviderID, strings.TrimSpace(provider.PublicProviderID), publicID)

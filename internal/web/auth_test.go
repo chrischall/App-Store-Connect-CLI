@@ -837,6 +837,43 @@ func TestSelectProviderRejectsUnknownPublicProviderID(t *testing.T) {
 	}
 }
 
+func TestSelectProviderRejectsMismatchedProviderIDs(t *testing.T) {
+	requests := 0
+	session := &AuthSession{
+		Client: &http.Client{
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				requests++
+				if req.Method != http.MethodGet || req.URL.String() != olympusSessionURL {
+					t.Fatalf("unexpected request %s %s", req.Method, req.URL.String())
+				}
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body: io.NopCloser(strings.NewReader(`{
+						"provider": {"providerId": 111, "publicProviderId": "TEAM111", "name": "Old Team"},
+						"availableProviders": [
+							{"providerId": 111, "publicProviderId": "TEAM111", "name": "Old Team"},
+							{"providerId": 222, "publicProviderId": "TEAM222", "name": "New Team"}
+						],
+						"user": {"emailAddress": "user@example.com"}
+					}`)),
+				}, nil
+			}),
+		},
+	}
+
+	err := SelectProvider(context.Background(), session, ProviderSelection{ProviderID: 999, PublicProviderID: "TEAM222"})
+	if err == nil {
+		t.Fatal("expected provider mismatch error")
+	}
+	if !strings.Contains(err.Error(), "TEAM222") || !strings.Contains(err.Error(), "999") || !strings.Contains(err.Error(), "222") {
+		t.Fatalf("expected error to include mismatched provider ids, got %v", err)
+	}
+	if requests != 1 {
+		t.Fatalf("expected mismatch to stop before provider selection POST, got %d requests", requests)
+	}
+}
+
 func TestPreparePasswordForProtocol(t *testing.T) {
 	t.Run("s2k", func(t *testing.T) {
 		prepared, err := preparePasswordForProtocol("example", "s2k")

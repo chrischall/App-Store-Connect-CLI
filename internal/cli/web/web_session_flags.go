@@ -44,17 +44,19 @@ func warnDeprecatedTwoFactorCodeFlag(twoFactorCode string) {
 
 func resolveWebSessionForCommand(ctx context.Context, flags webSessionFlags) (*webcore.AuthSession, error) {
 	warnDeprecatedTwoFactorCodeFlag(*flags.twoFactorCode)
-	session, _, err := callResolveSessionFn(
+	selection := providerSelectionFromFlags(flags)
+	session, _, err := callResolveSessionForProviderSelection(
 		ctx,
 		*flags.appleID,
 		"",
 		*flags.twoFactorCode,
 		*flags.twoFactorCodeCommand,
+		selection,
 	)
 	if err != nil {
 		return nil, err
 	}
-	if err := selectResolvedWebSessionProvider(ctx, session, providerSelectionFromFlags(flags)); err != nil {
+	if err := selectResolvedWebSessionProvider(ctx, session, selection); err != nil {
 		return nil, err
 	}
 	return session, nil

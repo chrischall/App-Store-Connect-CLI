@@ -2,7 +2,9 @@ package web
 
 import (
 	"context"
+	"errors"
 	"flag"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -128,6 +130,97 @@ func TestResolveWebSessionForCommandSelectsProvider(t *testing.T) {
 	if !persisted {
 		t.Fatal("expected selected provider session to be persisted")
 	}
+}
+
+func TestResolveWebSessionForCommandDoesNotPersistBeforeProviderSelection(t *testing.T) {
+	origTryResume := tryResumeSessionFn
+	origTryResumeLast := tryResumeLastFn
+	origLoadCachedSession := loadCachedSessionFn
+	origLoadLastCachedSession := loadLastCachedSessionFn
+	origWebLogin := webLoginFn
+	origWebLoginWithClient := webLoginWithClientFn
+	origSelectProvider := selectWebProviderFn
+	origPersist := persistWebSessionFn
+	t.Cleanup(func() {
+		tryResumeSessionFn = origTryResume
+		tryResumeLastFn = origTryResumeLast
+		loadCachedSessionFn = origLoadCachedSession
+		loadLastCachedSessionFn = origLoadLastCachedSession
+		webLoginFn = origWebLogin
+		webLoginWithClientFn = origWebLoginWithClient
+		selectWebProviderFn = origSelectProvider
+		persistWebSessionFn = origPersist
+	})
+
+	t.Setenv(webPasswordEnv, "secret")
+
+	providerID := int64(123456)
+	flags := webSessionFlags{
+		appleID:              ptrTo("user@example.com"),
+		twoFactorCode:        ptrTo(""),
+		twoFactorCodeCommand: ptrTo(""),
+		providerID:           &providerID,
+		publicProviderID:     ptrTo("TEAM123"),
+	}
+
+	selectErr := errors.New("provider unavailable")
+	selectWebProviderFn = func(ctx context.Context, session *webcore.AuthSession, selection webcore.ProviderSelection) error {
+		return selectErr
+	}
+	persistWebSessionFn = func(session *webcore.AuthSession) error {
+		t.Fatal("did not expect session cache persistence before provider selection succeeds")
+		return nil
+	}
+
+	t.Run("fresh login", func(t *testing.T) {
+		tryResumeSessionFn = func(ctx context.Context, username string) (*webcore.AuthSession, bool, error) {
+			return nil, false, nil
+		}
+		tryResumeLastFn = func(ctx context.Context) (*webcore.AuthSession, bool, error) {
+			t.Fatal("did not expect last-session cache lookup when apple-id is provided")
+			return nil, false, nil
+		}
+		webLoginFn = func(ctx context.Context, creds webcore.LoginCredentials) (*webcore.AuthSession, error) {
+			if creds.Username != "user@example.com" {
+				t.Fatalf("Username = %q, want user@example.com", creds.Username)
+			}
+			return &webcore.AuthSession{UserEmail: creds.Username}, nil
+		}
+
+		_, err := resolveWebSessionForCommand(context.Background(), flags)
+		if !errors.Is(err, selectErr) {
+			t.Fatalf("expected provider selection error, got %v", err)
+		}
+	})
+
+	t.Run("auto reauth", func(t *testing.T) {
+		cachedClient := &http.Client{}
+		tryResumeSessionFn = func(ctx context.Context, username string) (*webcore.AuthSession, bool, error) {
+			return nil, false, webcore.ErrCachedSessionExpired
+		}
+		tryResumeLastFn = func(ctx context.Context) (*webcore.AuthSession, bool, error) {
+			t.Fatal("did not expect last-session cache lookup when apple-id is provided")
+			return nil, false, nil
+		}
+		loadCachedSessionFn = func(username string) (*webcore.AuthSession, bool, error) {
+			return &webcore.AuthSession{Client: cachedClient, UserEmail: username}, true, nil
+		}
+		loadLastCachedSessionFn = func() (*webcore.AuthSession, bool, error) {
+			t.Fatal("did not expect last cached-session load when apple-id is provided")
+			return nil, false, nil
+		}
+		webLoginWithClientFn = func(ctx context.Context, client *http.Client, creds webcore.LoginCredentials) (*webcore.AuthSession, error) {
+			if client != cachedClient {
+				t.Fatal("expected cached client to be reused")
+			}
+			return &webcore.AuthSession{Client: client, UserEmail: creds.Username}, nil
+		}
+
+		_, err := resolveWebSessionForCommand(context.Background(), flags)
+		if !errors.Is(err, selectErr) {
+			t.Fatalf("expected provider selection error, got %v", err)
+		}
+	})
 }
 
 func ptrTo(value string) *string {
