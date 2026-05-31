@@ -16,19 +16,17 @@ func (c *Client) GetBundleIDs(ctx context.Context, opts ...BundleIDsOption) (*Bu
 		opt(query)
 	}
 
-	if query.nextURL == "" && shouldSplitBundleIDsIdentifierFilter(query.identifier) {
+	if query.nextURL == "" && shouldSplitBundleIDsIdentifierFilter(query) {
 		return c.getBundleIDsWithSplitIdentifierFilter(ctx, query)
 	}
 
-	path := "/v1/bundleIds"
+	path := bundleIDsRequestPath(query)
 	if query.nextURL != "" {
 		// Validate nextURL to prevent credential exfiltration
 		if err := validateNextURL(query.nextURL); err != nil {
 			return nil, fmt.Errorf("bundleIds: %w", err)
 		}
 		path = query.nextURL
-	} else if queryString := buildBundleIDsQuery(query); queryString != "" {
-		path += "?" + queryString
 	}
 
 	data, err := c.do(ctx, "GET", path, nil)
@@ -44,12 +42,13 @@ func (c *Client) GetBundleIDs(ctx context.Context, opts ...BundleIDsOption) (*Bu
 	return &response, nil
 }
 
-func shouldSplitBundleIDsIdentifierFilter(identifier string) bool {
-	return len(strings.TrimSpace(identifier)) > bundleIDsIdentifierFilterMaxLength && strings.Contains(identifier, ",")
+func shouldSplitBundleIDsIdentifierFilter(query *bundleIDsQuery) bool {
+	identifier := strings.TrimSpace(query.identifier)
+	return strings.Contains(identifier, ",") && len(bundleIDsRequestPath(query)) > bundleIDsIdentifierFilterMaxLength
 }
 
 func (c *Client) getBundleIDsWithSplitIdentifierFilter(ctx context.Context, query *bundleIDsQuery) (*BundleIDsResponse, error) {
-	chunks := splitCSVByMaxLength(query.identifier, bundleIDsIdentifierFilterMaxLength)
+	chunks := splitBundleIDsIdentifierFilter(query, bundleIDsIdentifierFilterMaxLength)
 	combined := &BundleIDsResponse{}
 
 	for _, chunk := range chunks {
@@ -73,14 +72,12 @@ func (c *Client) getBundleIDsWithSplitIdentifierFilter(ctx context.Context, quer
 }
 
 func (c *Client) getBundleIDsPage(ctx context.Context, query *bundleIDsQuery) (*BundleIDsResponse, error) {
-	path := "/v1/bundleIds"
+	path := bundleIDsRequestPath(query)
 	if strings.TrimSpace(query.nextURL) != "" {
 		if err := validateNextURL(query.nextURL); err != nil {
 			return nil, fmt.Errorf("bundleIds: %w", err)
 		}
 		path = query.nextURL
-	} else if queryString := buildBundleIDsQuery(query); queryString != "" {
-		path += "?" + queryString
 	}
 
 	data, err := c.do(ctx, "GET", path, nil)
@@ -96,11 +93,18 @@ func (c *Client) getBundleIDsPage(ctx context.Context, query *bundleIDsQuery) (*
 	return &response, nil
 }
 
-func splitCSVByMaxLength(value string, maxLength int) [][]string {
-	parts := strings.Split(value, ",")
+func bundleIDsRequestPath(query *bundleIDsQuery) string {
+	path := "/v1/bundleIds"
+	if queryString := buildBundleIDsQuery(query); queryString != "" {
+		path += "?" + queryString
+	}
+	return path
+}
+
+func splitBundleIDsIdentifierFilter(query *bundleIDsQuery, maxLength int) [][]string {
+	parts := strings.Split(query.identifier, ",")
 	chunks := make([][]string, 0, 1)
 	current := make([]string, 0)
-	currentLength := 0
 
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
@@ -108,22 +112,16 @@ func splitCSVByMaxLength(value string, maxLength int) [][]string {
 			continue
 		}
 
-		nextLength := len(part)
-		if currentLength > 0 {
-			nextLength += currentLength + 1
-		}
-		if len(current) > 0 && nextLength > maxLength {
+		candidate := append(append([]string{}, current...), part)
+		candidateQuery := *query
+		candidateQuery.identifier = strings.Join(candidate, ",")
+		if len(current) > 0 && len(bundleIDsRequestPath(&candidateQuery)) > maxLength {
 			chunks = append(chunks, current)
-			current = nil
-			currentLength = 0
+			current = []string{part}
+			continue
 		}
 
-		current = append(current, part)
-		if currentLength == 0 {
-			currentLength = len(part)
-		} else {
-			currentLength += len(part) + 1
-		}
+		current = candidate
 	}
 
 	if len(current) > 0 {

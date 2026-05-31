@@ -6184,9 +6184,13 @@ func TestGetBundleIDs_WithIdentifierFilter(t *testing.T) {
 }
 
 func TestGetBundleIDs_SplitsLongIdentifierFilter(t *testing.T) {
-	identifiers := make([]string, 0, 130)
-	for i := range 130 {
-		identifiers = append(identifiers, fmt.Sprintf("com.example.long.identifier.%03d.extension", i))
+	identifiers := make([]string, 0, 1500)
+	for range 1500 {
+		identifiers = append(identifiers, "a")
+	}
+	rawIdentifierFilter := strings.Join(identifiers, ",")
+	if len(rawIdentifierFilter) > bundleIDsIdentifierFilterMaxLength {
+		t.Fatalf("test setup expected raw filter length <= %d, got %d", bundleIDsIdentifierFilterMaxLength, len(rawIdentifierFilter))
 	}
 
 	requests := 0
@@ -6210,8 +6214,8 @@ func TestGetBundleIDs_SplitsLongIdentifierFilter(t *testing.T) {
 			if filter == "" {
 				t.Fatal("expected filter[identifier]")
 			}
-			if len(filter) > bundleIDsIdentifierFilterMaxLength {
-				t.Fatalf("expected filter[identifier] to be chunked below %d chars, got %d", bundleIDsIdentifierFilterMaxLength, len(filter))
+			if len(req.URL.RequestURI()) > bundleIDsIdentifierFilterMaxLength {
+				t.Fatalf("expected encoded request URI to be chunked below %d chars, got %d", bundleIDsIdentifierFilterMaxLength, len(req.URL.RequestURI()))
 			}
 			assertAuthorized(t, req)
 		},
@@ -6220,7 +6224,7 @@ func TestGetBundleIDs_SplitsLongIdentifierFilter(t *testing.T) {
 		jsonResponse(http.StatusOK, `{"data":[{"type":"bundleIds","id":"bid-3","attributes":{"identifier":"com.example.two"}}]}`),
 	)
 
-	resp, err := client.GetBundleIDs(context.Background(), WithBundleIDsFilterIdentifier(strings.Join(identifiers, ",")))
+	resp, err := client.GetBundleIDs(context.Background(), WithBundleIDsFilterIdentifier(rawIdentifierFilter))
 	if err != nil {
 		t.Fatalf("GetBundleIDs() error: %v", err)
 	}
