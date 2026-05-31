@@ -83,6 +83,58 @@ func TestAdsAuthEvalWorkflow(t *testing.T) {
 	}
 }
 
+func TestAdsAuthStatusShowsActiveEnvironmentContext(t *testing.T) {
+	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "missing.json"))
+	t.Setenv("ASC_ADS_ACCESS_TOKEN", "ACCESS")
+	t.Setenv("ASC_ADS_ORG_ID", "987654")
+
+	stdout, stderr, err := runAdsEvalCommand(t, "ads", "auth", "status", "--output", "json")
+	if err != nil {
+		t.Fatalf("status error: %v\nstderr: %s", err, stderr)
+	}
+	if stderr != "" {
+		t.Fatalf("status stderr = %q, want empty", stderr)
+	}
+	if strings.Contains(stdout, `"ACCESS"`) {
+		t.Fatalf("status leaked access token: %s", stdout)
+	}
+	var status struct {
+		Active struct {
+			Source      string `json:"source"`
+			OrgID       string `json:"org_id"`
+			OrgIDSource string `json:"org_id_source"`
+		} `json:"active"`
+		Credentials []struct {
+			Name string `json:"name"`
+		} `json:"credentials"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &status); err != nil {
+		t.Fatalf("status stdout is not JSON: %v\n%s", err, stdout)
+	}
+	if status.Active.Source != "ASC_ADS_ACCESS_TOKEN" || status.Active.OrgID != "987654" || status.Active.OrgIDSource != "ASC_ADS_ORG_ID" {
+		t.Fatalf("active = %+v, want env access token and org source", status.Active)
+	}
+	if len(status.Credentials) != 0 {
+		t.Fatalf("credentials = %+v, want no stored credentials", status.Credentials)
+	}
+
+	stdout, stderr, err = runAdsEvalCommand(t, "ads", "auth", "status")
+	if err != nil {
+		t.Fatalf("table status error: %v\nstderr: %s", err, stderr)
+	}
+	if stderr != "" {
+		t.Fatalf("table status stderr = %q, want empty", stderr)
+	}
+	for _, want := range []string{
+		"Active auth: ASC_ADS_ACCESS_TOKEN",
+		"Org ID: 987654 (ASC_ADS_ORG_ID)",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("table status = %q, missing %q", stdout, want)
+		}
+	}
+}
+
 func TestAdsAuthEvalValidatesUsageErrors(t *testing.T) {
 	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
 	t.Setenv("ASC_ADS_BYPASS_KEYCHAIN", "1")

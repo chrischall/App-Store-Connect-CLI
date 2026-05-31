@@ -110,6 +110,78 @@ func TestAdsAgentReadOnlyEvalWorkflow(t *testing.T) {
 	}
 }
 
+func TestAdsAuthDiscoverSummarizesMeAndAcls(t *testing.T) {
+	t.Setenv("ASC_ADS_ACCESS_TOKEN", "ACCESS")
+	t.Setenv("ASC_ADS_ORG_ID", "987654")
+	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "missing.json"))
+
+	log := newRequestLog(2)
+	installDefaultTransport(t, adsRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		assertAdsEvalBearer(t, req)
+		assertAdsEvalNoOrg(t, req)
+		assertAdsEvalNoBody(t, req)
+		log.Add(req.Method + " " + req.URL.RequestURI())
+
+		switch req.URL.Path {
+		case "/api/v5/me":
+			return adsJSONResponse(200, `{"data":{"id":"user-1","name":"Ada Example"}}`), nil
+		case "/api/v5/acls":
+			return adsJSONResponse(200, `{"data":[{"orgId":987654,"orgName":"Example Org","roleNames":["Admin"]},{"orgId":123456,"name":"Other Org","roles":["ReadOnly"]}]}`), nil
+		default:
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
+			return nil, nil
+		}
+	}))
+
+	stdout, stderr, err := runAdsEvalCommand(t, "ads", "auth", "discover", "--output", "json")
+	if err != nil {
+		t.Fatalf("discover error: %v\nstderr: %s", err, stderr)
+	}
+	if stderr != "" {
+		t.Fatalf("discover stderr = %q, want empty", stderr)
+	}
+	if strings.Contains(stdout, `"ACCESS"`) {
+		t.Fatalf("discover leaked access token: %s", stdout)
+	}
+
+	var result struct {
+		AuthSource  string `json:"auth_source"`
+		OrgID       string `json:"org_id"`
+		OrgIDSource string `json:"org_id_source"`
+		Me          struct {
+			ID string `json:"id"`
+		} `json:"me"`
+		Accounts []struct {
+			OrgID  string   `json:"org_id"`
+			Name   string   `json:"name"`
+			Roles  []string `json:"roles"`
+			Active bool     `json:"active"`
+		} `json:"accounts"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("discover stdout is not JSON: %v\n%s", err, stdout)
+	}
+	if result.AuthSource != "ASC_ADS_ACCESS_TOKEN" || result.OrgID != "987654" || result.OrgIDSource != "ASC_ADS_ORG_ID" {
+		t.Fatalf("discovery context = %+v, want env token/org", result)
+	}
+	if result.Me.ID != "user-1" {
+		t.Fatalf("me.id = %q, want user-1", result.Me.ID)
+	}
+	if len(result.Accounts) != 2 || result.Accounts[0].OrgID != "987654" || result.Accounts[0].Name != "Example Org" || !result.Accounts[0].Active {
+		t.Fatalf("accounts = %+v, want active Example Org first", result.Accounts)
+	}
+	if got := strings.Join(result.Accounts[0].Roles, ","); got != "Admin" {
+		t.Fatalf("roles = %q, want Admin", got)
+	}
+
+	requests := strings.Join(log.Snapshot(), "\n")
+	for _, want := range []string{"GET /api/v5/me", "GET /api/v5/acls"} {
+		if !strings.Contains(requests, want) {
+			t.Fatalf("requests = %q, missing %q", requests, want)
+		}
+	}
+}
+
 func TestAdsAgentMutationEvalWorkflow(t *testing.T) {
 	t.Setenv("ASC_ADS_ACCESS_TOKEN", "ACCESS")
 	t.Setenv("ASC_ADS_ORG_ID", "987654")

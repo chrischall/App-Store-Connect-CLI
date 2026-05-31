@@ -2,6 +2,7 @@ package ads
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -35,6 +36,7 @@ Examples:
 		Subcommands: []*ffcli.Command{
 			AuthLoginCommand(),
 			AuthStatusCommand(),
+			AuthDiscoverCommand(),
 			AuthSwitchCommand(),
 			AuthTokenCommand(),
 			AuthDoctorCommand(),
@@ -214,6 +216,7 @@ Examples:
 			}
 			result := adsAuthStatusOutput{
 				Storage:     storageDescription(),
+				Active:      statusActiveContext(),
 				Credentials: rows,
 			}
 			if normalized == "json" {
@@ -233,7 +236,16 @@ Examples:
 
 type adsAuthStatusOutput struct {
 	Storage     string             `json:"storage"`
+	Active      adsAuthContext     `json:"active"`
 	Credentials []adsAuthStatusRow `json:"credentials"`
+}
+
+type adsAuthContext struct {
+	Profile     string `json:"profile,omitempty"`
+	Source      string `json:"source,omitempty"`
+	OrgID       string `json:"org_id,omitempty"`
+	OrgIDSource string `json:"org_id_source,omitempty"`
+	Error       string `json:"error,omitempty"`
 }
 
 type adsAuthStatusRow struct {
@@ -251,6 +263,8 @@ type adsAuthStatusRow struct {
 
 func printStatusTable(result adsAuthStatusOutput) {
 	fmt.Printf("Credential storage: %s\n\n", result.Storage)
+	printActiveContext(result.Active)
+	fmt.Println()
 	if len(result.Credentials) == 0 {
 		fmt.Println("No Apple Ads credentials stored. Run 'asc ads auth login' to get started.")
 		return
@@ -279,11 +293,254 @@ func printStatusTable(result adsAuthStatusOutput) {
 	}
 }
 
+func printActiveContext(active adsAuthContext) {
+	if active.Error != "" {
+		fmt.Printf("Active auth: unavailable (%s)\n", active.Error)
+		return
+	}
+	if active.Source == "" {
+		fmt.Println("Active auth: none")
+		return
+	}
+	fmt.Printf("Active auth: %s\n", active.Source)
+	if active.Profile != "" {
+		fmt.Printf("  Profile: %s\n", active.Profile)
+	}
+	if active.OrgID != "" {
+		if active.OrgIDSource != "" {
+			fmt.Printf("  Org ID: %s (%s)\n", active.OrgID, active.OrgIDSource)
+		} else {
+			fmt.Printf("  Org ID: %s\n", active.OrgID)
+		}
+	} else {
+		fmt.Println("  Org ID: not selected")
+	}
+}
+
+func statusActiveContext() adsAuthContext {
+	credentials, source, err := resolveCredentialsWithSource(commonFlags{})
+	if err != nil {
+		if isNoAdsCredentialError(err) {
+			return adsAuthContext{}
+		}
+		return adsAuthContext{Error: err.Error()}
+	}
+	orgID, orgSource, err := resolveOrgIDWithSource(commonFlags{}, credentials)
+	if err != nil {
+		return adsAuthContext{Error: err.Error()}
+	}
+	return adsAuthContext{
+		Profile:     credentials.Profile,
+		Source:      source,
+		OrgID:       orgID,
+		OrgIDSource: orgSource,
+	}
+}
+
+func isNoAdsCredentialError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := err.Error()
+	return strings.Contains(message, "default credentials not found") ||
+		strings.Contains(message, "credentials not found")
+}
+
 func storageDescription() string {
 	if appleads.ShouldBypassKeychain() {
 		return "Config File"
 	}
 	return "System Keychain"
+}
+
+func AuthDiscoverCommand() *ffcli.Command {
+	fs := flag.NewFlagSet("ads auth discover", flag.ExitOnError)
+	common := commonFlags{
+		AdsProfile: fs.String("ads-profile", "", "Use named Apple Ads authentication profile"),
+		Org:        fs.String("org", "", "Apple Ads organization ID to mark active"),
+	}
+	output := shared.BindOutputFlagsWithAllowed(fs, "output", "table", "Output format: table, json", "table", "json")
+	return &ffcli.Command{
+		Name:       "discover",
+		ShortUsage: "asc ads auth discover [flags]",
+		ShortHelp:  "Discover Apple Ads user and organization access.",
+		LongHelp: `Discover Apple Ads user and organization access.
+
+This read-only command calls GET v5/me and GET v5/acls. It does not print access tokens.
+
+Examples:
+  asc ads auth discover
+  asc ads auth discover --output json
+  asc ads auth discover --ads-profile "Ads"`,
+		FlagSet:   fs,
+		UsageFunc: shared.DefaultUsageFunc,
+		Exec: func(ctx context.Context, args []string) error {
+			if err := rejectUnexpectedArgs(args); err != nil {
+				return err
+			}
+			normalized, err := shared.ValidateOutputFormatAllowed(*output.Output, *output.Pretty, "table", "json")
+			if err != nil {
+				return shared.UsageError(err.Error())
+			}
+			credentials, source, err := resolveCredentialsWithSource(common)
+			if err != nil {
+				return fmt.Errorf("ads auth discover: %w", err)
+			}
+			orgID, orgSource, err := resolveOrgIDWithSource(common, credentials)
+			if err != nil {
+				return fmt.Errorf("ads auth discover: %w", err)
+			}
+			client, err := appleads.NewClient(credentials)
+			if err != nil {
+				return fmt.Errorf("ads auth discover: %w", err)
+			}
+			requestCtx, cancel := requestContext(ctx)
+			defer cancel()
+
+			meSpec, _ := appleads.EndpointByCommandPath("me", "view")
+			meRaw, err := client.Do(requestCtx, meSpec, nil, nil, nil)
+			if err != nil {
+				return fmt.Errorf("ads auth discover: me lookup failed: %w", err)
+			}
+			aclsSpec, _ := appleads.EndpointByCommandPath("acls", "list")
+			aclsRaw, err := client.Do(requestCtx, aclsSpec, nil, nil, nil)
+			if err != nil {
+				return fmt.Errorf("ads auth discover: acl lookup failed: %w", err)
+			}
+
+			result := adsAuthDiscoveryOutput{
+				AuthSource:  source,
+				Profile:     credentials.Profile,
+				OrgID:       orgID,
+				OrgIDSource: orgSource,
+				Me:          envelopeData(meRaw),
+				Accounts:    summarizeACLAccounts(aclsRaw, orgID),
+			}
+			if normalized == "json" {
+				return shared.PrintOutput(result, "json", *output.Pretty)
+			}
+			printDiscoveryTable(result)
+			return nil
+		},
+	}
+}
+
+type adsAuthDiscoveryOutput struct {
+	AuthSource  string                  `json:"auth_source"`
+	Profile     string                  `json:"profile,omitempty"`
+	OrgID       string                  `json:"org_id,omitempty"`
+	OrgIDSource string                  `json:"org_id_source,omitempty"`
+	Me          json.RawMessage         `json:"me"`
+	Accounts    []adsAuthAccountSummary `json:"accounts"`
+}
+
+type adsAuthAccountSummary struct {
+	OrgID  string   `json:"org_id,omitempty"`
+	Name   string   `json:"name,omitempty"`
+	Roles  []string `json:"roles,omitempty"`
+	Active bool     `json:"active"`
+}
+
+func printDiscoveryTable(result adsAuthDiscoveryOutput) {
+	fmt.Printf("Auth source: %s\n", result.AuthSource)
+	if result.Profile != "" {
+		fmt.Printf("Profile: %s\n", result.Profile)
+	}
+	if result.OrgID != "" {
+		if result.OrgIDSource != "" {
+			fmt.Printf("Selected org: %s (%s)\n", result.OrgID, result.OrgIDSource)
+		} else {
+			fmt.Printf("Selected org: %s\n", result.OrgID)
+		}
+	} else {
+		fmt.Println("Selected org: none")
+	}
+	if len(result.Accounts) == 0 {
+		fmt.Println("Accounts: none returned")
+		return
+	}
+	fmt.Println("Accounts:")
+	for _, account := range result.Accounts {
+		marker := ""
+		if account.Active {
+			marker = " (active)"
+		}
+		label := account.OrgID
+		if account.Name != "" {
+			label += " - " + account.Name
+		}
+		fmt.Printf("  %s%s\n", label, marker)
+		if len(account.Roles) > 0 {
+			fmt.Printf("    Roles: %s\n", strings.Join(account.Roles, ", "))
+		}
+	}
+}
+
+func envelopeData(raw appleads.RawResponse) json.RawMessage {
+	var envelope struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil || len(envelope.Data) == 0 {
+		return json.RawMessage("null")
+	}
+	return envelope.Data
+}
+
+func summarizeACLAccounts(raw appleads.RawResponse, activeOrgID string) []adsAuthAccountSummary {
+	var envelope struct {
+		Data []map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return nil
+	}
+	accounts := make([]adsAuthAccountSummary, 0, len(envelope.Data))
+	for _, item := range envelope.Data {
+		orgID := jsonScalarString(firstMapValue(item, "orgId", "orgID", "organizationId", "id"))
+		account := adsAuthAccountSummary{
+			OrgID:  orgID,
+			Name:   jsonScalarString(firstMapValue(item, "orgName", "organizationName", "name")),
+			Roles:  jsonStringList(firstMapValue(item, "roleNames", "roles")),
+			Active: orgID != "" && activeOrgID != "" && orgID == activeOrgID,
+		}
+		accounts = append(accounts, account)
+	}
+	return accounts
+}
+
+func firstMapValue(item map[string]any, keys ...string) any {
+	for _, key := range keys {
+		if value, ok := item[key]; ok {
+			return value
+		}
+	}
+	return nil
+}
+
+func jsonScalarString(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	case float64:
+		return strings.TrimSuffix(strings.TrimSuffix(fmt.Sprintf("%.0f", typed), ".0"), ".")
+	case json.Number:
+		return typed.String()
+	default:
+		return ""
+	}
+}
+
+func jsonStringList(value any) []string {
+	items, ok := value.([]any)
+	if !ok {
+		return nil
+	}
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		if text := jsonScalarString(item); text != "" {
+			result = append(result, text)
+		}
+	}
+	return result
 }
 
 func AuthSwitchCommand() *ffcli.Command {
