@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -391,6 +393,87 @@ func TestExecuteAppScreenshotUploadSkipExistingSyncFailurePersistsLocalOrder(t *
 	}
 	if len(artifactData.Failures) != 1 || artifactData.Failures[0].FileName != "screenshot ordering" {
 		t.Fatalf("expected ordering failure in artifact, got %#v", artifactData.Failures)
+	}
+}
+
+func TestResumeAppScreenshotUploadSkipExistingPreservesPendingLocalOrder(t *testing.T) {
+	workDir := t.TempDir()
+	newPath := writeAssetsTestPNGWithSize(t, workDir, "01-new.png", 9, 8)
+	pendingPath := writeAssetsTestPNGWithSize(t, workDir, "02-pending.png", 10, 8)
+	existingPath := writeAssetsTestPNG(t, workDir, "03-existing.png")
+	pendingSizeBytes := fileSize(t, pendingPath)
+	artifactPath := filepath.Join(workDir, "failure-artifact.json")
+
+	_, err := persistScreenshotUploadFailureArtifact(artifactPath, screenshotUploadFailureArtifact{
+		VersionLocalizationID: "LOC_123",
+		Path:                  artifactPath,
+		DisplayType:           "APP_IPHONE_65",
+		SkipExisting:          true,
+		SetID:                 "set-1",
+		Files:                 []string{newPath, pendingPath, existingPath},
+		OrderedIDs:            []string{"new-1", "existing-1"},
+		PendingFiles:          []string{pendingPath},
+		Results: []asc.AssetUploadResultItem{
+			{FileName: filepath.Base(existingPath), FilePath: existingPath, AssetID: "existing-1", State: "skipped", Skipped: true},
+			{FileName: filepath.Base(newPath), FilePath: newPath, AssetID: "new-1", State: "COMPLETE"},
+		},
+		Error:       "screenshots upload: 1 file(s) pending retry",
+		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+	})
+	if err != nil {
+		t.Fatalf("persistScreenshotUploadFailureArtifact() error: %v", err)
+	}
+
+	relationshipPatches := make([][]string, 0, 2)
+	origTransport := http.DefaultTransport
+	http.DefaultTransport = assetsUploadRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodPost && req.URL.Path == "/v1/appScreenshots":
+			return assetsJSONResponse(http.StatusCreated, fmt.Sprintf(`{"data":{"type":"appScreenshots","id":"pending-1","attributes":{"uploadOperations":[{"method":"PUT","url":"https://upload.example/pending-1","length":%d,"offset":0}]}}}`, pendingSizeBytes))
+		case req.Method == http.MethodPut && req.URL.Host == "upload.example":
+			return assetsJSONResponse(http.StatusOK, `{}`)
+		case req.Method == http.MethodPatch && req.URL.Path == "/v1/appScreenshots/pending-1":
+			return assetsJSONResponse(http.StatusOK, `{"data":{"type":"appScreenshots","id":"pending-1","attributes":{"uploaded":true}}}`)
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appScreenshots/pending-1":
+			return assetsJSONResponse(http.StatusOK, `{"data":{"type":"appScreenshots","id":"pending-1","attributes":{"assetDeliveryState":{"state":"COMPLETE"}}}}`)
+		case req.Method == http.MethodPatch && req.URL.Path == "/v1/appScreenshotSets/set-1/relationships/appScreenshots":
+			body, err := io.ReadAll(req.Body)
+			if err != nil {
+				t.Fatalf("read relationship patch body: %v", err)
+			}
+			var payload asc.RelationshipRequest
+			if err := json.Unmarshal(body, &payload); err != nil {
+				t.Fatalf("decode relationship patch body: %v", err)
+			}
+			gotIDs := make([]string, 0, len(payload.Data))
+			for _, item := range payload.Data {
+				gotIDs = append(gotIDs, item.ID)
+			}
+			relationshipPatches = append(relationshipPatches, gotIDs)
+			return assetsJSONResponse(http.StatusNoContent, "")
+		default:
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
+			return nil, nil
+		}
+	})
+	t.Cleanup(func() {
+		http.DefaultTransport = origTransport
+	})
+
+	client := newAssetsUploadTestClient(t)
+	result, err := resumeAppScreenshotUpload(context.Background(), client, artifactPath)
+	if err != nil {
+		t.Fatalf("resumeAppScreenshotUpload() error: %v", err)
+	}
+	if len(result.Results) != 3 {
+		t.Fatalf("expected previous and resumed results, got %#v", result.Results)
+	}
+	if len(relationshipPatches) == 0 {
+		t.Fatal("expected relationship patch during resume")
+	}
+	wantFinalOrder := []string{"new-1", "pending-1", "existing-1"}
+	if got := relationshipPatches[len(relationshipPatches)-1]; !reflect.DeepEqual(got, wantFinalOrder) {
+		t.Fatalf("final relationship order = %v, want %v", got, wantFinalOrder)
 	}
 }
 
