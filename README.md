@@ -323,6 +323,16 @@ asc xcode-cloud run --source-run-id "BUILD_RUN_ID" --clean
 asc xcode-cloud build-runs get --id "BUILD_RUN_ID"
 ```
 
+### Apple Ads campaign management
+
+Apple Ads uses separate OAuth credentials from App Store Connect:
+
+```bash
+asc ads auth login --name "Marketing" --client-id "SEARCHADS_CLIENT_ID" --team-id "SEARCHADS_TEAM_ID" --key-id "KEY_ID" --private-key ./ads-key.pem --org "123456"
+asc ads campaigns --org "123456" --limit 100 --output json
+asc ads reports campaigns --org "123456" --file reporting-request.json --output json
+```
+
 ## Commands and Reference
 
 Use built-in help as the source of truth:

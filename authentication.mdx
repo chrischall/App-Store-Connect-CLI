@@ -202,6 +202,46 @@ asc --profile "WorkApp" apps list
   Use `--strict-auth` or `ASC_STRICT_AUTH=true` to fail when credentials are resolved from multiple sources (helps catch mixed-source errors).
 </Note>
 
+## Apple Ads authentication
+
+Apple Ads uses a separate OAuth client credentials flow and a separate Apple Ads
+API key. App Store Connect API keys do not work for `asc ads`.
+
+Store Apple Ads credentials with:
+
+```bash  theme={null}
+asc ads auth login \
+  --name "Marketing" \
+  --client-id "SEARCHADS_CLIENT_ID" \
+  --team-id "SEARCHADS_TEAM_ID" \
+  --key-id "KEY_ID" \
+  --private-key ./apple-ads-private-key.pem \
+  --org "123456"
+```
+
+Validate Apple Ads credentials:
+
+```bash  theme={null}
+asc ads auth status --validate
+asc ads auth doctor
+```
+
+Apple Ads credential resolution order:
+
+1. Explicit `--ads-profile "ProfileName"`
+2. `ASC_ADS_PROFILE`
+3. `ASC_ADS_ACCESS_TOKEN`
+4. Complete Apple Ads environment variables
+5. Default stored Apple Ads profile
+6. Single stored Apple Ads profile
+
+If a profile is selected with `--ads-profile` or `ASC_ADS_PROFILE`, that profile
+wins over `ASC_ADS_ACCESS_TOKEN`. Set `ASC_ADS_STRICT_AUTH=true` to fail when a
+profile and access token are both present.
+
+Most Apple Ads commands also require an organization ID. Set it with `--org`,
+store it during Ads login, or export `ASC_ADS_ORG_ID`.
+
 ## Validate credentials
 
 Test your credentials with a lightweight API request:
@@ -331,6 +371,22 @@ This removes credentials from both keychain and config files.
 | `ASC_PROFILE`          | Named profile to use          | `MyApp`                                |
 | `ASC_BYPASS_KEYCHAIN`  | Skip keychain, use config/env | `1`, `true`, `yes`, `on`               |
 | `ASC_STRICT_AUTH`      | Fail on mixed sources         | `1`, `true`, `yes`, `on`               |
+
+### Apple Ads environment variables
+
+| Variable                    | Purpose                              | Example                    |
+| --------------------------- | ------------------------------------ | -------------------------- |
+| `ASC_ADS_CLIENT_ID`         | Apple Ads OAuth client ID            | `SEARCHADS_CLIENT_ID`      |
+| `ASC_ADS_TEAM_ID`           | Apple Ads OAuth team ID              | `SEARCHADS_TEAM_ID`        |
+| `ASC_ADS_KEY_ID`            | Apple Ads API key ID                 | `KEY123`                   |
+| `ASC_ADS_PRIVATE_KEY_PATH`  | Path to Apple Ads private key        | `/path/to/ads-key.pem`     |
+| `ASC_ADS_PRIVATE_KEY`       | Raw Apple Ads private key PEM        | `-----BEGIN PRIVATE KEY-----` |
+| `ASC_ADS_PRIVATE_KEY_B64`   | Base64-encoded Apple Ads private key | `LS0tLS1CRUdJTi...`        |
+| `ASC_ADS_PROFILE`           | Named Apple Ads profile to use       | `Marketing`                |
+| `ASC_ADS_ACCESS_TOKEN`      | Pre-minted Apple Ads OAuth token     | `eyJ...`                   |
+| `ASC_ADS_ORG_ID`            | Apple Ads organization ID            | `123456`                   |
+| `ASC_ADS_BYPASS_KEYCHAIN`   | Skip keychain for Apple Ads auth     | `1`, `true`, `yes`, `on`   |
+| `ASC_ADS_STRICT_AUTH`       | Fail on mixed Apple Ads sources      | `1`, `true`, `yes`, `on`   |
 
 ## Troubleshooting
 

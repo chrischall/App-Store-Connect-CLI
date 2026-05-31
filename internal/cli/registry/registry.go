@@ -9,6 +9,7 @@ import (
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/accessibility"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/account"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/actors"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/ads"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/agerating"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/agreements"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/alternativedistribution"
@@ -118,6 +119,7 @@ func Subcommands(version string) []*ffcli.Command {
 		reviews.ReviewsCommand(),
 		reviews.ReviewCommand(),
 		analytics.AnalyticsCommand(),
+		ads.AdsCommand(),
 		performance.PerformanceCommand(),
 		finance.FinanceCommand(),
 		apps.AppsCommand(),

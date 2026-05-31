@@ -103,6 +103,7 @@
             "group": "Monetization & Analytics",
             "pages": [
               "commands/analytics",
+              "commands/ads",
               "commands/finance",
               "commands/performance",
               "commands/iap",
