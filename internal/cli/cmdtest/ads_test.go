@@ -135,6 +135,114 @@ func TestAdsDeleteRequiresConfirmBeforeNetwork(t *testing.T) {
 	}
 }
 
+func TestAdsCampaignPauseAndResumeUseCuratedStatusPayloads(t *testing.T) {
+	t.Setenv("ASC_ADS_ACCESS_TOKEN", "ACCESS")
+	t.Setenv("ASC_ADS_ORG_ID", "123456")
+	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "missing.json"))
+
+	log := newRequestLog(2)
+	installDefaultTransport(t, adsRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodPut || req.URL.Path != "/api/v5/campaigns/123" {
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
+		}
+		if got := req.Header.Get("X-AP-Context"); got != "orgId=123456" {
+			t.Fatalf("X-AP-Context = %q, want orgId=123456", got)
+		}
+		var body struct {
+			Campaign struct {
+				Status string `json:"status"`
+			} `json:"campaign"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		status := body.Campaign.Status
+		log.Add(status)
+		return adsJSONResponse(200, `{"data":{"id":123,"status":"`+status+`"}}`), nil
+	}))
+
+	for _, args := range [][]string{
+		{"ads", "campaigns", "pause", "--campaign", "123", "--confirm", "--output", "json"},
+		{"ads", "campaigns", "resume", "--campaign", "123", "--confirm", "--output", "json"},
+	} {
+		root := RootCommand("dev")
+		if err := root.Parse(args); err != nil {
+			t.Fatalf("parse %s: %v", strings.Join(args, " "), err)
+		}
+		stdout, stderr := captureOutput(t, func() {
+			if err := root.Run(context.Background()); err != nil {
+				t.Fatalf("run %s: %v", strings.Join(args, " "), err)
+			}
+		})
+		if stderr != "" {
+			t.Fatalf("stderr = %q, want empty", stderr)
+		}
+		var parsed struct {
+			Data struct {
+				ID     int    `json:"id"`
+				Status string `json:"status"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal([]byte(stdout), &parsed); err != nil {
+			t.Fatalf("stdout is not JSON: %v\n%s", err, stdout)
+		}
+		if parsed.Data.ID != 123 || parsed.Data.Status == "" {
+			t.Fatalf("parsed data = %+v, want campaign status response", parsed.Data)
+		}
+	}
+
+	requests := strings.Join(log.Snapshot(), "\n")
+	if requests != "PAUSED\nENABLED" {
+		t.Fatalf("payload statuses = %q, want PAUSED then ENABLED", requests)
+	}
+}
+
+func TestAdsCampaignPauseValidatesBeforeNetwork(t *testing.T) {
+	t.Setenv("ASC_ADS_ACCESS_TOKEN", "ACCESS")
+	t.Setenv("ASC_ADS_ORG_ID", "123456")
+	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "missing.json"))
+	installDefaultTransport(t, adsRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		t.Fatalf("unexpected network request: %s %s", req.Method, req.URL.String())
+		return nil, nil
+	}))
+
+	for _, tc := range []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{
+			name:    "missing confirm",
+			args:    []string{"ads", "campaigns", "pause", "--campaign", "123"},
+			wantErr: "--confirm is required",
+		},
+		{
+			name:    "invalid campaign",
+			args:    []string{"ads", "campaigns", "pause", "--campaign", "abc", "--confirm"},
+			wantErr: "--campaign must be an integer",
+		},
+		{
+			name:    "missing campaign",
+			args:    []string{"ads", "campaigns", "pause", "--confirm"},
+			wantErr: "--campaign is required",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := RootCommand("dev")
+			if err := root.Parse(tc.args); err != nil {
+				t.Fatalf("parse error: %v", err)
+			}
+			var runErr error
+			_, stderr := captureOutput(t, func() {
+				runErr = root.Run(context.Background())
+			})
+			if !errors.Is(runErr, flag.ErrHelp) || !strings.Contains(stderr, tc.wantErr) {
+				t.Fatalf("run error = %v stderr = %q, want %q", runErr, stderr, tc.wantErr)
+			}
+		})
+	}
+}
+
 func TestAdsEndpointRejectsUnexpectedArgsBeforeNetwork(t *testing.T) {
 	t.Setenv("ASC_ADS_ACCESS_TOKEN", "ACCESS")
 	t.Setenv("ASC_ADS_ORG_ID", "123456")

@@ -85,6 +85,7 @@ func buildNodeCommand(node *commandNode, parentPath []string) *ffcli.Command {
 	for _, name := range sortedChildNames(node) {
 		subcommands = append(subcommands, buildNodeCommand(node.children[name], path))
 	}
+	subcommands = append(subcommands, workflowSubcommands(path)...)
 
 	command := &ffcli.Command{
 		Name:        node.name,
