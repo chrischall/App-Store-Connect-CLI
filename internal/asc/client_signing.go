@@ -54,6 +54,8 @@ func (c *Client) getBundleIDsWithSplitIdentifierFilter(ctx context.Context, quer
 	for _, chunk := range chunks {
 		chunkQuery := *query
 		chunkQuery.identifier = strings.Join(chunk, ",")
+		page := 1
+		seenNext := make(map[string]struct{})
 
 		for {
 			resp, err := c.getBundleIDsPage(ctx, &chunkQuery)
@@ -61,10 +63,16 @@ func (c *Client) getBundleIDsWithSplitIdentifierFilter(ctx context.Context, quer
 				return nil, err
 			}
 			combined.Data = append(combined.Data, resp.Data...)
-			if strings.TrimSpace(resp.Links.Next) == "" {
+			next := strings.TrimSpace(resp.Links.Next)
+			if next == "" {
 				break
 			}
-			chunkQuery = bundleIDsQuery{listQuery: listQuery{nextURL: resp.Links.Next}}
+			if _, ok := seenNext[next]; ok {
+				return nil, fmt.Errorf("page %d: %w", page+1, ErrRepeatedPaginationURL)
+			}
+			seenNext[next] = struct{}{}
+			page++
+			chunkQuery = bundleIDsQuery{listQuery: listQuery{nextURL: next}}
 		}
 	}
 

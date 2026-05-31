@@ -6236,6 +6236,32 @@ func TestGetBundleIDs_SplitsLongIdentifierFilter(t *testing.T) {
 	}
 }
 
+func TestGetBundleIDs_SplitIdentifierFilterRejectsRepeatedNextURL(t *testing.T) {
+	identifiers := make([]string, 0, 1500)
+	for range 1500 {
+		identifiers = append(identifiers, "a")
+	}
+	nextURL := "https://api.appstoreconnect.apple.com/v1/bundleIds?cursor=repeat"
+
+	requests := 0
+	client := newTestClient(
+		t, func(req *http.Request) {
+			requests++
+			assertAuthorized(t, req)
+		},
+		jsonResponse(http.StatusOK, `{"data":[{"type":"bundleIds","id":"bid-1","attributes":{"identifier":"com.example.one"}}],"links":{"next":"`+nextURL+`"}}`),
+		jsonResponse(http.StatusOK, `{"data":[{"type":"bundleIds","id":"bid-2","attributes":{"identifier":"com.example.two"}}],"links":{"next":"`+nextURL+`"}}`),
+	)
+
+	_, err := client.GetBundleIDs(context.Background(), WithBundleIDsFilterIdentifier(strings.Join(identifiers, ",")))
+	if !errors.Is(err, ErrRepeatedPaginationURL) {
+		t.Fatalf("expected ErrRepeatedPaginationURL, got %v", err)
+	}
+	if requests != 2 {
+		t.Fatalf("expected repeated next URL to stop after two requests, got %d", requests)
+	}
+}
+
 func TestGetInAppPurchasesV2_WithLimit(t *testing.T) {
 	response := jsonResponse(http.StatusOK, `{"data":[{"type":"inAppPurchases","id":"iap-1","attributes":{"name":"Pro","productId":"com.example.pro","inAppPurchaseType":"CONSUMABLE"}}]}`)
 	client := newTestClient(t, func(req *http.Request) {
