@@ -333,6 +333,10 @@ asc ads campaigns --org "123456" --limit 100 --output json
 asc ads reports campaigns --org "123456" --file reporting-request.json --output json
 ```
 
+See [guides/apple-ads-playbooks.mdx](guides/apple-ads-playbooks.mdx) for
+operator playbooks covering credential safety, org inspection, read-only smoke
+tests, reporting, raw API usage, and guarded mutations.
+
 ## Commands and Reference
 
 Use built-in help as the source of truth:
@@ -358,6 +362,7 @@ For full command families, flags, and discovery patterns, see:
 - [docs/CI_CD.md](docs/CI_CD.md) - CI/CD integration guides (GitHub Actions, GitLab, Bitrise, CircleCI)
 - [docs/COMMANDS.md](docs/COMMANDS.md) - Command families and reference navigation
 - [docs/WORKFLOWS.md](docs/WORKFLOWS.md) - Reusable workflow patterns, including local Xcode to TestFlight
+- [guides/apple-ads-playbooks.mdx](guides/apple-ads-playbooks.mdx) - Apple Ads operator playbooks
 - [docs/API_NOTES.md](docs/API_NOTES.md) - API quirks and behaviors
 - [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) - CLI development and testing notes
 - [docs/TESTING.md](docs/TESTING.md) - Testing patterns and conventions
