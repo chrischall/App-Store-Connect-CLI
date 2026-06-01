@@ -165,6 +165,7 @@ Implement this command group:
 ```text
 asc ads auth login --name NAME --client-id CLIENT_ID --team-id TEAM_ID --key-id KEY_ID --private-key PATH [--org ORG_ID] [--network] [--skip-validation] [--bypass-keychain] [--local]
 asc ads auth status [--verbose] [--validate] [--output table|json]
+asc ads auth discover [--ads-profile NAME] [--org ORG_ID] [--output table|json]
 asc ads auth switch --name NAME
 asc ads auth token --confirm [--output text|json]
 asc ads auth doctor [--output text|json]
@@ -186,6 +187,8 @@ Mirror the existing `asc auth` behavior:
 - `--local` requires keychain bypass, exactly like `asc auth login`.
 - Keychain is preferred; config fallback is allowed when bypassing keychain.
 - `auth status` supports `--verbose` and `--validate`, matching `asc auth status`.
+- `auth discover` calls `/v5/me` and `/v5/acls` to show the active Ads user and
+  available organizations without printing access tokens.
 - `auth logout` supports `--all` and `--name`. It requires one of those flags
   so bare `asc ads auth logout` does not clear every stored Ads profile, and
   `--all` requires `--confirm`.

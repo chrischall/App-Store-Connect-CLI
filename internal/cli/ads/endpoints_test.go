@@ -41,6 +41,35 @@ func TestAdsCommandRegistersEveryEndpointSpec(t *testing.T) {
 	}
 }
 
+func TestAdsCampaignsHelpReadsAsManagementSurface(t *testing.T) {
+	root := AdsCommand()
+	campaigns := findCommand(root, "campaigns")
+	if campaigns == nil {
+		t.Fatal("missing campaigns command")
+	}
+	if campaigns.ShortHelp != "Manage Apple Ads campaigns." {
+		t.Fatalf("campaigns ShortHelp = %q, want management surface", campaigns.ShortHelp)
+	}
+	if campaigns.FlagSet.Lookup("campaign") != nil {
+		t.Fatal("campaigns list alias should not expose workflow-only --campaign flag")
+	}
+
+	resume := findCommand(root, "campaigns", "resume")
+	if resume == nil {
+		t.Fatal("missing campaigns resume command")
+	}
+	campaignFlag := resume.FlagSet.Lookup("campaign")
+	if campaignFlag == nil {
+		t.Fatal("resume command missing --campaign flag")
+	}
+	if got := campaignFlag.Usage; got != "Apple Ads campaign ID (required)" {
+		t.Fatalf("resume --campaign usage = %q, want operator-friendly wording", got)
+	}
+	if !strings.Contains(resume.LongHelp, "--campaign CAMPAIGN_ID --confirm --org ORG_ID") {
+		t.Fatalf("resume LongHelp = %q, want campaign ID example", resume.LongHelp)
+	}
+}
+
 func TestCollectQueryValidatesEndpointSpecificLimitsAndEnums(t *testing.T) {
 	customReports, _ := appleads.EndpointByCommandPath("impression-share-reports", "list")
 	fs, flags := bindEndpointFlags(customReports, "test")
@@ -255,6 +284,28 @@ func TestCollectQueryIncludesAllowedValidValues(t *testing.T) {
 	want := url.Values{"states": {"HIDDEN,VISIBLE"}}
 	if query.Encode() != want.Encode() {
 		t.Fatalf("query = %s, want %s", query.Encode(), want.Encode())
+	}
+}
+
+func TestEndpointHelpUsesOperatorFriendlyAuthDiscoveryNames(t *testing.T) {
+	root := AdsCommand()
+	tests := []struct {
+		path []string
+		want string
+	}{
+		{path: []string{"me"}, want: "View the current Apple Ads user."},
+		{path: []string{"me", "view"}, want: "View the current Apple Ads user."},
+		{path: []string{"acls"}, want: "List Apple Ads account ACLs."},
+		{path: []string{"acls", "list"}, want: "List Apple Ads account ACLs."},
+	}
+	for _, test := range tests {
+		cmd := findCommand(root, test.path...)
+		if cmd == nil {
+			t.Fatalf("missing command asc ads %s", strings.Join(test.path, " "))
+		}
+		if cmd.ShortHelp != test.want {
+			t.Fatalf("asc ads %s ShortHelp = %q, want %q", strings.Join(test.path, " "), cmd.ShortHelp, test.want)
+		}
 	}
 }
 

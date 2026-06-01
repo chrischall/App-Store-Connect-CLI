@@ -38,53 +38,60 @@ func resolveClient(ctx context.Context, flags commonFlags, requiresOrg bool) (*a
 }
 
 func resolveCredentials(flags commonFlags) (appleads.Credentials, error) {
+	credentials, _, err := resolveCredentialsWithSource(flags)
+	return credentials, err
+}
+
+func resolveCredentialsWithSource(flags commonFlags) (appleads.Credentials, string, error) {
 	profile := strings.TrimSpace(value(flags.AdsProfile))
+	profileSource := "--ads-profile"
 	if profile == "" {
 		profile = strings.TrimSpace(os.Getenv("ASC_ADS_PROFILE"))
+		profileSource = "ASC_ADS_PROFILE"
 	}
 	accessToken := strings.TrimSpace(os.Getenv("ASC_ADS_ACCESS_TOKEN"))
 	strict := parseBoolEnv("ASC_ADS_STRICT_AUTH")
 	if profile != "" {
 		if strict && accessToken != "" {
-			return appleads.Credentials{}, fmt.Errorf("mixed Apple Ads authentication sources detected: profile and ASC_ADS_ACCESS_TOKEN")
+			return appleads.Credentials{}, "", fmt.Errorf("mixed Apple Ads authentication sources detected: profile and ASC_ADS_ACCESS_TOKEN")
 		}
 		if strict {
 			if _, ok, err := envCredentials(); err != nil {
-				return appleads.Credentials{}, err
+				return appleads.Credentials{}, "", err
 			} else if ok {
-				return appleads.Credentials{}, fmt.Errorf("mixed Apple Ads authentication sources detected: profile and ASC_ADS_* key credentials")
+				return appleads.Credentials{}, "", fmt.Errorf("mixed Apple Ads authentication sources detected: profile and ASC_ADS_* key credentials")
 			}
 		}
 		credentials, _, err := appleads.GetCredentialsWithSource(profile)
 		if err != nil {
-			return appleads.Credentials{}, err
+			return appleads.Credentials{}, "", err
 		}
-		return credentials, nil
+		return credentials, profileSource, nil
 	}
 	if accessToken != "" {
 		if strict {
 			if _, ok, err := envCredentials(); err != nil {
-				return appleads.Credentials{}, err
+				return appleads.Credentials{}, "", err
 			} else if ok {
-				return appleads.Credentials{}, fmt.Errorf("mixed Apple Ads authentication sources detected: ASC_ADS_ACCESS_TOKEN and ASC_ADS_* key credentials")
+				return appleads.Credentials{}, "", fmt.Errorf("mixed Apple Ads authentication sources detected: ASC_ADS_ACCESS_TOKEN and ASC_ADS_* key credentials")
 			}
 		}
-		return appleads.Credentials{AccessToken: accessToken}, nil
+		return appleads.Credentials{AccessToken: accessToken}, "ASC_ADS_ACCESS_TOKEN", nil
 	}
 
 	env, ok, err := envCredentials()
 	if err != nil {
-		return appleads.Credentials{}, err
+		return appleads.Credentials{}, "", err
 	}
 	if ok {
-		return env, nil
+		return env, "ASC_ADS_* key credentials", nil
 	}
 
 	credentials, _, err := appleads.GetCredentialsWithSource("")
 	if err != nil {
-		return appleads.Credentials{}, err
+		return appleads.Credentials{}, "", err
 	}
-	return credentials, nil
+	return credentials, "default Ads profile", nil
 }
 
 func envCredentials() (appleads.Credentials, bool, error) {
@@ -122,17 +129,35 @@ func envCredentials() (appleads.Credentials, bool, error) {
 }
 
 func resolveOrgID(flags commonFlags, credentials appleads.Credentials) (string, error) {
-	if orgID := firstNonEmpty(value(flags.Org), os.Getenv("ASC_ADS_ORG_ID"), credentials.OrgID); orgID != "" {
-		return orgID, nil
+	orgID, _, err := resolveOrgIDWithSource(flags, credentials)
+	return orgID, err
+}
+
+func resolveOrgIDWithSource(flags commonFlags, credentials appleads.Credentials) (string, string, error) {
+	if orgID := value(flags.Org); orgID != "" {
+		return orgID, "--org", nil
+	}
+	if orgID := strings.TrimSpace(os.Getenv("ASC_ADS_ORG_ID")); orgID != "" {
+		return orgID, "ASC_ADS_ORG_ID", nil
+	}
+	if orgID := strings.TrimSpace(credentials.OrgID); orgID != "" {
+		if strings.TrimSpace(credentials.Profile) != "" {
+			return orgID, "Ads profile org_id", nil
+		}
+		return orgID, "credential org_id", nil
 	}
 	cfg, err := config.Load()
 	if err != nil {
 		if errors.Is(err, config.ErrNotFound) {
-			return "", nil
+			return "", "", nil
 		}
-		return "", err
+		return "", "", err
 	}
-	return strings.TrimSpace(cfg.Ads.OrgID), nil
+	orgID := strings.TrimSpace(cfg.Ads.OrgID)
+	if orgID == "" {
+		return "", "", nil
+	}
+	return orgID, "ads.org_id", nil
 }
 
 func requestContext(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -153,13 +178,4 @@ func value(ptr *string) string {
 		return ""
 	}
 	return strings.TrimSpace(*ptr)
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, item := range values {
-		if strings.TrimSpace(item) != "" {
-			return strings.TrimSpace(item)
-		}
-	}
-	return ""
 }

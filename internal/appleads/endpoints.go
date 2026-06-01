@@ -126,7 +126,7 @@ func EndpointSpecs() []EndpointSpec {
 		endpoint("get-all-ad-groups", "GET", "v5/campaigns/{campaignId}/adgroups", []string{"ad-groups", "list"}, BodyNone, "", "AdGroupListResponse", []ParamSpec{campaignParam}, qLimitOffset()),
 		endpoint("create-an-ad-group", "POST", "v5/campaigns/{campaignId}/adgroups", []string{"ad-groups", "create"}, BodyObject, "AdGroup", "AdGroupResponse", []ParamSpec{campaignParam}, nil),
 		endpoint("find-ad-groups", "POST", "v5/campaigns/{campaignId}/adgroups/find", []string{"ad-groups", "find"}, BodyObject, "Selector", "AdGroupListResponse", []ParamSpec{campaignParam}, nil),
-		endpoint("find-ad-groups-org", "POST", "v5/adgroups/find", []string{"ad-groups", "find-org"}, BodyObject, "Selector", "AdGroupListResponse", nil, nil),
+		endpoint("find-ad-groups-across-organization", "POST", "v5/adgroups/find", []string{"ad-groups", "find-org"}, BodyObject, "Selector", "AdGroupListResponse", nil, nil),
 		endpoint("delete-an-ad-group", "DELETE", "v5/campaigns/{campaignId}/adgroups/{adgroupId}", []string{"ad-groups", "delete"}, BodyNone, "", "VoidResponse", []ParamSpec{campaignParam, adGroupParam}, nil),
 		endpoint("get-an-ad-group", "GET", "v5/campaigns/{campaignId}/adgroups/{adgroupId}", []string{"ad-groups", "view"}, BodyNone, "", "AdGroupResponse", []ParamSpec{campaignParam, adGroupParam}, nil),
 		endpoint("update-an-ad-group", "PUT", "v5/campaigns/{campaignId}/adgroups/{adgroupId}", []string{"ad-groups", "update"}, BodyObject, "AdGroupUpdate", "AdGroupResponse", []ParamSpec{campaignParam, adGroupParam}, nil),
@@ -137,7 +137,7 @@ func EndpointSpecs() []EndpointSpec {
 		endpoint("get-an-ad", "GET", "v5/campaigns/{campaignId}/adgroups/{adgroupId}/ads/{adId}", []string{"ads", "view"}, BodyNone, "", "AdResponse", []ParamSpec{campaignParam, adGroupParam, adParam}, nil),
 		endpoint("update-an-ad", "PUT", "v5/campaigns/{campaignId}/adgroups/{adgroupId}/ads/{adId}", []string{"ads", "update"}, BodyObject, "AdUpdate", "AdResponse", []ParamSpec{campaignParam, adGroupParam, adParam}, nil),
 		endpoint("find-ads", "POST", "v5/campaigns/{campaignId}/ads/find", []string{"ads", "find"}, BodyObject, "Selector", "AdListResponse", []ParamSpec{campaignParam}, nil),
-		endpoint("find-ads-org", "POST", "v5/ads/find", []string{"ads", "find-org"}, BodyObject, "Selector", "AdListResponse", nil, nil),
+		endpoint("find-ads-across-organization", "POST", "v5/ads/find", []string{"ads", "find-org"}, BodyObject, "Selector", "AdListResponse", nil, nil),
 
 		endpoint("get-all-targeting-keywords-in-an-ad-group", "GET", "v5/campaigns/{campaignId}/adgroups/{adgroupId}/targetingkeywords", []string{"targeting-keywords", "list"}, BodyNone, "", "KeywordListResponse", []ParamSpec{campaignParam, adGroupParam}, qLimitOffset()),
 		endpoint("find-targeting-keywords-in-a-campaign", "POST", "v5/campaigns/{campaignId}/adgroups/targetingkeywords/find", []string{"targeting-keywords", "find"}, BodyObject, "Selector", "KeywordListResponse", []ParamSpec{campaignParam}, nil),
