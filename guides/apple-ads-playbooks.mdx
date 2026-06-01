@@ -1,0 +1,230 @@
+# Apple Ads Operator Playbooks
+
+> Practical Apple Ads workflows for safe setup, read-only checks, reporting, and guarded mutations
+
+Use these playbooks when you are operating Apple Ads from `asc` in a terminal,
+CI job, or agent run. The goal is to start read-only, confirm the org context,
+and only mutate resources after the target IDs and payload files are reviewed.
+
+## Setup and Credential Safety
+
+Apple Ads credentials are separate from App Store Connect API credentials.
+`asc auth login` does not configure `asc ads`.
+
+Create a named Apple Ads profile and store the default org when you know it:
+
+```bash  theme={null}
+asc ads auth login \
+  --name "Marketing" \
+  --client-id "SEARCHADS_CLIENT_ID" \
+  --team-id "SEARCHADS_TEAM_ID" \
+  --key-id "KEY_ID" \
+  --private-key "$HOME/.asc/apple-ads-private-key.pem" \
+  --org "123456" \
+  --network
+```
+
+For CI, prefer secrets and environment variables over checked-in config:
+
+```bash  theme={null}
+export ASC_ADS_CLIENT_ID="SEARCHADS_CLIENT_ID"
+export ASC_ADS_TEAM_ID="SEARCHADS_TEAM_ID"
+export ASC_ADS_KEY_ID="KEY_ID"
+export ASC_ADS_PRIVATE_KEY_PATH="$HOME/.asc/apple-ads-private-key.pem"
+export ASC_ADS_ORG_ID="123456"
+export ASC_ADS_BYPASS_KEYCHAIN=1
+
+asc ads campaigns list --org "$ASC_ADS_ORG_ID" --limit 1 --output json
+```
+
+Use a read-only API command for CI validation so the run resolves the exported
+`ASC_ADS_*` credentials and org context instead of only listing stored profiles.
+
+Use `ASC_ADS_PRIVATE_KEY_B64` when your CI secret store handles single-line
+values more reliably than PEM blocks. Keep `ASC_ADS_ACCESS_TOKEN` for cases
+where another trusted system already minted a short-lived token.
+
+## Org Access Inspection
+
+Start outside an org context. These commands do not require `--org`:
+
+```bash  theme={null}
+asc ads acls list --output json
+```
+
+Use the ACL response to confirm the account and choose the org ID, then pin it
+explicitly for the rest of the session:
+
+```bash  theme={null}
+export ASC_ADS_ORG_ID="123456"
+asc ads campaigns list --org "$ASC_ADS_ORG_ID" --limit 1 --output json
+```
+
+When operating multiple Apple Ads accounts, avoid relying on the ambient
+default. Pass both profile and org:
+
+```bash  theme={null}
+asc ads campaigns list \
+  --ads-profile "Marketing" \
+  --org "123456" \
+  --limit 10 \
+  --output table
+```
+
+## Safe Read-Only Smoke Test
+
+Use this sequence before an automation run or after rotating credentials:
+
+```bash  theme={null}
+asc ads acls list --output json
+asc ads campaigns list --org "123456" --limit 1 --output json
+```
+
+Expected result: every command exits successfully, and the campaign list returns
+either a `data` array or an empty `data` array. Treat auth failures, missing org
+errors, or unexpected account names as stop conditions.
+
+When using stored Ads profiles, add profile validation before the API smoke
+test:
+
+```bash  theme={null}
+asc ads auth status --validate --output json
+```
+
+## Campaign and Ad Group Inventory
+
+List campaigns first, then inspect ad groups under one confirmed campaign ID:
+
+```bash  theme={null}
+asc ads campaigns list \
+  --org "123456" \
+  --limit 100 \
+  --output table
+
+asc ads ad-groups list \
+  --org "123456" \
+  --campaign 987654321 \
+  --limit 100 \
+  --output json
+```
+
+For full exports from query-parameter list endpoints, use pagination:
+
+```bash  theme={null}
+asc ads campaigns list --org "123456" --paginate --output json
+asc ads ad-groups list --org "123456" --campaign 987654321 --paginate --output json
+```
+
+Do not use report payloads as inventory replacements. Reports answer
+performance questions; list and find endpoints answer "what exists right now?"
+questions.
+
+## Report Workflow
+
+Keep reporting requests in files so they can be reviewed and reused:
+
+```json reporting-request.json
+{
+  "startTime": "2026-05-01",
+  "endTime": "2026-05-31",
+  "returnRowTotals": true,
+  "returnGrandTotals": true,
+  "selector": {
+    "pagination": {
+      "offset": 0,
+      "limit": 100
+    },
+    "orderBy": [
+      {
+        "field": "impressions",
+        "sortOrder": "DESCENDING"
+      }
+    ]
+  }
+}
+```
+
+Run the campaign report with an explicit org and output format:
+
+```bash  theme={null}
+asc ads reports campaigns \
+  --org "123456" \
+  --file reporting-request.json \
+  --output json
+```
+
+For ad-group, keyword, search-term, or ad-level reports, first verify the parent
+campaign ID with `asc ads campaigns list`. Report pagination lives inside the
+Apple Ads request body, so update the file's selector pagination rather than
+adding `--paginate`.
+
+## Raw API Safety
+
+Use `asc ads api request` for debugging, newly added Apple fields, or support
+captures. Prefer first-class commands for routine work.
+
+Read-only raw request:
+
+```bash  theme={null}
+asc ads api request \
+  --method GET \
+  --path v5/campaigns \
+  --org "123456" \
+  --output json
+```
+
+Selector request with a reviewed JSON file:
+
+```bash  theme={null}
+asc ads api request \
+  --method POST \
+  --path v5/campaigns/find \
+  --org "123456" \
+  --file selector.json \
+  --output json
+```
+
+Raw requests only accept Apple Ads v5 paths or Apple Ads API URLs. `DELETE`
+requests require `--confirm`; do not pass it until the command line includes
+the exact target path you intend to delete.
+
+## Mutation Safety Checklist
+
+Before running create, update, delete, or bulk commands:
+
+1. Run the matching `--help` command and confirm required flags.
+2. Resolve account and org access with `asc ads acls list --output json`.
+3. Run a read-only resource check:
+   `asc ads campaigns list --org "123456" --limit 1 --output json`.
+4. Pass `--ads-profile` and `--org` explicitly when more than one account or org is possible.
+5. Store request bodies in reviewed JSON files; avoid shell-escaped inline JSON.
+6. Create paused or clearly named test resources when validating workflow shape.
+7. Print or log the target IDs before using `--confirm`.
+8. Prefer deleting temporary parent campaigns only after confirming Apple allows the cleanup.
+
+Example guarded delete:
+
+```bash  theme={null}
+asc ads campaigns view --org "123456" --campaign 987654321 --output json
+asc ads campaigns delete --org "123456" --campaign 987654321 --confirm
+```
+
+## Troubleshooting Auth and Source Precedence
+
+Use the auth doctor first:
+
+```bash  theme={null}
+asc ads auth doctor --output json
+asc ads auth status --verbose --output json
+```
+
+Common fixes:
+
+* Missing org: pass `--org`, export `ASC_ADS_ORG_ID`, or store `--org` during login.
+* Wrong profile: pass `--ads-profile "Marketing"` or export `ASC_ADS_PROFILE`.
+* Keychain prompts in CI: export `ASC_ADS_BYPASS_KEYCHAIN=1`.
+* Mixed sources: set `ASC_ADS_STRICT_AUTH=1` to fail when both profile and env token/key sources are present.
+* Token-only runs: `ASC_ADS_ACCESS_TOKEN` still needs `--org`, `ASC_ADS_ORG_ID`, or a stored profile org.
+
+When debugging API responses, use an explicit output format and redact tokens,
+client IDs, team IDs, key IDs, org IDs, and account names before sharing logs.
