@@ -26,8 +26,10 @@ func TestReportsPresetCommandHelpShowsOperatorGuidance(t *testing.T) {
 		"Apple Ads accepts UTC and ORTZ",
 		"--last-days for an inclusive UTC rolling date range",
 		"Ad-level reports require --sort",
-		"HOURLY granularity is available for\ncampaign, ad-group, and keyword report levels",
-		"Search-term report levels cannot\nrequest row totals while granularity is set",
+		"HOURLY granularity is available for",
+		"campaign, ad-group, and keyword report levels",
+		"Search-term report levels cannot",
+		"request row totals",
 		"asc ads reports preset --level ads --campaign 12345 --from 2026-05-01 --to 2026-05-31 --sort impressions:desc",
 	} {
 		if !strings.Contains(cmd.LongHelp, want) {

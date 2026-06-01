@@ -116,8 +116,8 @@ requesting ORTZ because Apple Ads resolves the organization time zone. Use the
 raw report commands with --file when you need custom conditions or advanced
 selector JSON. Ad-level reports require --sort because Apple Ads requires
 selector.orderBy for that endpoint. HOURLY granularity is available for
-campaign, ad-group, and keyword report levels. Search-term report levels cannot
-request row totals while granularity is set.
+	campaign, ad-group, and keyword report levels. Search-term report levels cannot
+	request row totals.
 
 Examples:
   asc ads reports preset --level campaigns --from 2026-05-01 --to 2026-05-31 --fields campaignName,impressions,taps,spend --sort impressions:desc --org "123456"
@@ -242,7 +242,7 @@ func buildReportPresetPayload(flags adsReportPresetFlags, now time.Time) (adsRep
 		return adsReportPresetPayload{}, fmt.Errorf("--sort is required for --level ads")
 	}
 	if isSearchTermReportLevel(level) && *flags.returnRowTotals {
-		return adsReportPresetPayload{}, fmt.Errorf("--return-row-totals cannot be used with search-term report levels when --granularity is set")
+		return adsReportPresetPayload{}, fmt.Errorf("--return-row-totals cannot be used with search-term report levels")
 	}
 
 	selector := adsReportPresetSelector{
