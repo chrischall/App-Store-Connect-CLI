@@ -175,8 +175,9 @@ func TestBuildReportPresetPayloadAllowsDateWindowBoundaries(t *testing.T) {
 		to          string
 	}{
 		{name: "hourly exactly seven days apart", granularity: "HOURLY", from: "2026-05-25", to: "2026-06-01"},
-		{name: "weekly fifteen inclusive days", granularity: "WEEKLY", from: "2026-05-18", to: "2026-06-01"},
-		{name: "weekly three hundred sixty five inclusive days", granularity: "WEEKLY", from: "2025-06-02", to: "2026-06-01"},
+		{name: "daily exactly ninety days apart", granularity: "DAILY", from: "2026-03-03", to: "2026-06-01"},
+		{name: "weekly more than fourteen days apart", granularity: "WEEKLY", from: "2026-05-17", to: "2026-06-01"},
+		{name: "weekly exactly three hundred sixty five days apart", granularity: "WEEKLY", from: "2025-06-01", to: "2026-06-01"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			flags := reportPresetTestFlags(
@@ -211,10 +212,10 @@ func TestBuildReportPresetPayloadRejectsDateWindowsAppleWillRefuse(t *testing.T)
 	}{
 		{name: "hourly more than seven days", granularity: "HOURLY", from: "2026-05-24", to: "2026-06-01", wantErr: "--granularity HOURLY supports a maximum 7-day date range"},
 		{name: "hourly start too old", granularity: "HOURLY", from: "2026-05-01", to: "2026-05-07", wantErr: "--granularity HOURLY start date must be within the last 30 days"},
-		{name: "daily more than ninety days", granularity: "DAILY", from: "2026-02-01", to: "2026-05-02", wantErr: "--granularity DAILY supports a maximum 90-day date range"},
+		{name: "daily more than ninety days", granularity: "DAILY", from: "2026-03-02", to: "2026-06-01", wantErr: "--granularity DAILY supports a maximum 90-day date range"},
 		{name: "daily start too old", granularity: "DAILY", from: "2026-02-01", to: "2026-02-07", wantErr: "--granularity DAILY start date must be within the last 90 days"},
-		{name: "weekly too short", granularity: "WEEKLY", from: "2026-05-19", to: "2026-06-01", wantErr: "--granularity WEEKLY requires a date range of 15 to 365 inclusive days"},
-		{name: "weekly too long", granularity: "WEEKLY", from: "2025-05-01", to: "2026-05-02", wantErr: "--granularity WEEKLY requires a date range of 15 to 365 inclusive days"},
+		{name: "weekly too short", granularity: "WEEKLY", from: "2026-05-18", to: "2026-06-01", wantErr: "--granularity WEEKLY requires a date range more than 14 days and at most 365 days"},
+		{name: "weekly too long", granularity: "WEEKLY", from: "2025-05-31", to: "2026-06-01", wantErr: "--granularity WEEKLY requires a date range more than 14 days and at most 365 days"},
 		{name: "weekly start too old", granularity: "WEEKLY", from: "2024-05-01", to: "2024-05-20", wantErr: "--granularity WEEKLY start date must be within the last 24 months"},
 		{name: "monthly too short", granularity: "MONTHLY", from: "2026-01-01", to: "2026-04-01", wantErr: "--granularity MONTHLY requires a date range more than 3 months"},
 		{name: "monthly start too old", granularity: "MONTHLY", from: "2024-05-01", to: "2024-09-01", wantErr: "--granularity MONTHLY start date must be within the last 24 months"},

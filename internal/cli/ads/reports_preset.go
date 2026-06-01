@@ -292,7 +292,6 @@ func validateReportPresetDateWindow(granularity string, start string, end string
 		return err
 	}
 	span := endDate.Sub(startDate)
-	inclusiveDays := int(span/(24*time.Hour)) + 1
 	today := reportPresetToday(now)
 
 	switch granularity {
@@ -304,15 +303,15 @@ func validateReportPresetDateWindow(granularity string, start string, end string
 			return fmt.Errorf("--granularity HOURLY start date must be within the last 30 days")
 		}
 	case "DAILY":
-		if span > 89*24*time.Hour {
+		if span > 90*24*time.Hour {
 			return fmt.Errorf("--granularity DAILY supports a maximum 90-day date range")
 		}
 		if startDate.Before(today.AddDate(0, 0, -90)) {
 			return fmt.Errorf("--granularity DAILY start date must be within the last 90 days")
 		}
 	case "WEEKLY":
-		if inclusiveDays < 15 || inclusiveDays > 365 {
-			return fmt.Errorf("--granularity WEEKLY requires a date range of 15 to 365 inclusive days")
+		if span <= 14*24*time.Hour || span > 365*24*time.Hour {
+			return fmt.Errorf("--granularity WEEKLY requires a date range more than 14 days and at most 365 days")
 		}
 		if startDate.Before(today.AddDate(-2, 0, 0)) {
 			return fmt.Errorf("--granularity WEEKLY start date must be within the last 24 months")

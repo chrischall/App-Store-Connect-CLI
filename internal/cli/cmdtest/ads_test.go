@@ -274,7 +274,7 @@ func TestAdsReportsPresetValidatesUsageBeforeNetwork(t *testing.T) {
 	recentFrom, recentTo := adsReportRecentRange(7)
 	hourlyLongFrom, hourlyLongTo := adsReportRangeEnding(8, 0)
 	hourlyOldFrom, hourlyOldTo := adsReportRangeEnding(31, 25)
-	dailyLongFrom, dailyLongTo := adsReportRecentRange(91)
+	dailyLongFrom, dailyLongTo := adsReportRangeEnding(91, 0)
 	installDefaultTransport(t, adsRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 		t.Fatalf("unexpected network request: %s %s", req.Method, req.URL.String())
 		return nil, nil
