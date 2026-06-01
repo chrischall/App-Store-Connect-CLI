@@ -93,7 +93,7 @@ func TestBuildReportPresetPayloadRejectsLastDaysWithORTZ(t *testing.T) {
 	}
 }
 
-func TestBuildReportPresetPayloadAllowsUTCForSearchTerms(t *testing.T) {
+func TestBuildReportPresetPayloadDefaultsSearchTermsToORTZ(t *testing.T) {
 	payload, err := buildReportPresetPayload(reportPresetTestFlags(
 		"search-terms",
 		"12345",
@@ -105,8 +105,26 @@ func TestBuildReportPresetPayloadAllowsUTCForSearchTerms(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildReportPresetPayload() error: %v", err)
 	}
-	if payload.TimeZone != "UTC" {
-		t.Fatalf("timeZone = %q, want UTC", payload.TimeZone)
+	if payload.TimeZone != "ORTZ" {
+		t.Fatalf("timeZone = %q, want ORTZ", payload.TimeZone)
+	}
+}
+
+func TestBuildReportPresetPayloadRejectsExplicitUTCForSearchTerms(t *testing.T) {
+	flags := reportPresetTestFlags(
+		"search-terms",
+		"12345",
+		"2026-05-01",
+		"2026-05-31",
+		0,
+		"UTC",
+	)
+	timeZoneExplicit := true
+	flags.timeZoneExplicit = &timeZoneExplicit
+
+	_, err := buildReportPresetPayload(flags, time.Date(2026, 6, 1, 1, 0, 0, 0, time.UTC))
+	if err == nil || !strings.Contains(err.Error(), "--time-zone must be ORTZ for search-term report levels") {
+		t.Fatalf("error = %v, want explicit search-term time-zone validation", err)
 	}
 }
 
@@ -130,8 +148,8 @@ func TestBuildReportPresetPayloadAllowsHourlyWhereSupported(t *testing.T) {
 			flags := reportPresetTestFlags(
 				level,
 				"12345",
-				"2026-05-01",
-				"2026-05-31",
+				"2026-05-26",
+				"2026-06-01",
 				0,
 				"UTC",
 			)
@@ -144,6 +162,36 @@ func TestBuildReportPresetPayloadAllowsHourlyWhereSupported(t *testing.T) {
 			}
 			if payload.Granularity != "HOURLY" {
 				t.Fatalf("granularity = %q, want HOURLY", payload.Granularity)
+			}
+		})
+	}
+}
+
+func TestBuildReportPresetPayloadRejectsHourlyDateWindowsAppleWillRefuse(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		from    string
+		to      string
+		wantErr string
+	}{
+		{name: "more than seven days", from: "2026-05-25", to: "2026-06-01", wantErr: "--granularity HOURLY supports a maximum 7-day date range"},
+		{name: "start too old", from: "2026-05-01", to: "2026-05-07", wantErr: "--granularity HOURLY start date must be within the last 30 days"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			flags := reportPresetTestFlags(
+				"campaigns",
+				"",
+				tt.from,
+				tt.to,
+				0,
+				"UTC",
+			)
+			granularity := "HOURLY"
+			flags.granularity = &granularity
+
+			_, err := buildReportPresetPayload(flags, time.Date(2026, 6, 1, 1, 0, 0, 0, time.UTC))
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("error = %v, want %q", err, tt.wantErr)
 			}
 		})
 	}
@@ -163,8 +211,8 @@ func TestBuildReportPresetPayloadRejectsHourlyWhereUnsupported(t *testing.T) {
 			flags := reportPresetTestFlags(
 				tt.level,
 				"12345",
-				"2026-05-01",
-				"2026-05-31",
+				"2026-05-26",
+				"2026-06-01",
 				0,
 				tt.timeZone,
 			)
@@ -230,21 +278,23 @@ func reportPresetTestFlags(level, campaign, from, to string, lastDays int, timeZ
 	sort := ""
 	limit := 1000
 	offset := 0
+	timeZoneExplicit := false
 	returnRowTotals := false
 	return adsReportPresetFlags{
-		level:           &level,
-		campaign:        &campaign,
-		adGroup:         &adGroup,
-		from:            &from,
-		to:              &to,
-		lastDays:        &lastDays,
-		granularity:     &granularity,
-		fields:          &fields,
-		sort:            &sort,
-		limit:           &limit,
-		offset:          &offset,
-		timeZone:        &timeZone,
-		returnRowTotals: &returnRowTotals,
+		level:            &level,
+		campaign:         &campaign,
+		adGroup:          &adGroup,
+		from:             &from,
+		to:               &to,
+		lastDays:         &lastDays,
+		granularity:      &granularity,
+		fields:           &fields,
+		sort:             &sort,
+		limit:            &limit,
+		offset:           &offset,
+		timeZone:         &timeZone,
+		timeZoneExplicit: &timeZoneExplicit,
+		returnRowTotals:  &returnRowTotals,
 	}
 }
 

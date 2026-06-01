@@ -21,19 +21,20 @@ type adsReportPresetFlags struct {
 	common commonFlags
 	output shared.OutputFlags
 
-	level           *string
-	campaign        *string
-	adGroup         *string
-	from            *string
-	to              *string
-	lastDays        *int
-	granularity     *string
-	fields          *string
-	sort            *string
-	limit           *int
-	offset          *int
-	timeZone        *string
-	returnRowTotals *bool
+	level            *string
+	campaign         *string
+	adGroup          *string
+	from             *string
+	to               *string
+	lastDays         *int
+	granularity      *string
+	fields           *string
+	sort             *string
+	limit            *int
+	offset           *int
+	timeZone         *string
+	timeZoneExplicit *bool
+	returnRowTotals  *bool
 }
 
 type adsReportPresetPayload struct {
@@ -128,6 +129,13 @@ Examples:
 			if err := rejectUnexpectedArgs(args); err != nil {
 				return err
 			}
+			timeZoneExplicit := false
+			fs.Visit(func(f *flag.Flag) {
+				if f.Name == "time-zone" {
+					timeZoneExplicit = true
+				}
+			})
+			flags.timeZoneExplicit = &timeZoneExplicit
 			return executeReportsPreset(ctx, flags)
 		},
 	}
@@ -200,7 +208,7 @@ func reportPresetPathParams(spec appleads.EndpointSpec, flags adsReportPresetFla
 
 func buildReportPresetPayload(flags adsReportPresetFlags, now time.Time) (adsReportPresetPayload, error) {
 	level := strings.TrimSpace(*flags.level)
-	reportingTimeZone, err := normalizeReportPresetTimeZone(*flags.timeZone)
+	reportingTimeZone, err := normalizeReportPresetTimeZone(*flags.timeZone, level, flags.timeZoneExplicit != nil && *flags.timeZoneExplicit)
 	if err != nil {
 		return adsReportPresetPayload{}, err
 	}
@@ -210,6 +218,9 @@ func buildReportPresetPayload(flags adsReportPresetFlags, now time.Time) (adsRep
 	}
 	granularity := strings.ToUpper(strings.TrimSpace(*flags.granularity))
 	if err := validateReportPresetGranularity(level, granularity); err != nil {
+		return adsReportPresetPayload{}, err
+	}
+	if err := validateReportPresetHourlyWindow(granularity, start, end, now); err != nil {
 		return adsReportPresetPayload{}, err
 	}
 	if *flags.limit < 1 || *flags.limit > appleads.MaxPageLimit(appleads.EndpointSpec{}) {
@@ -262,6 +273,29 @@ func validateReportPresetGranularity(level string, granularity string) error {
 	return nil
 }
 
+func validateReportPresetHourlyWindow(granularity string, start string, end string, now time.Time) error {
+	if granularity != "HOURLY" {
+		return nil
+	}
+	startDate, err := parseReportPresetDate("--from", start)
+	if err != nil {
+		return err
+	}
+	endDate, err := parseReportPresetDate("--to", end)
+	if err != nil {
+		return err
+	}
+	if endDate.Sub(startDate) > 6*24*time.Hour {
+		return fmt.Errorf("--granularity HOURLY supports a maximum 7-day date range")
+	}
+	now = now.UTC()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	if startDate.Before(today.AddDate(0, 0, -30)) {
+		return fmt.Errorf("--granularity HOURLY start date must be within the last 30 days")
+	}
+	return nil
+}
+
 func reportPresetDateRange(from, to string, lastDays int, now time.Time, reportingTimeZone string) (string, string, error) {
 	from = strings.TrimSpace(from)
 	to = strings.TrimSpace(to)
@@ -297,13 +331,21 @@ func reportPresetDateRange(from, to string, lastDays int, now time.Time, reporti
 	return from, to, nil
 }
 
-func normalizeReportPresetTimeZone(value string) (string, error) {
+func normalizeReportPresetTimeZone(value string, level string, explicit bool) (string, error) {
 	normalized := strings.ToUpper(strings.TrimSpace(value))
 	if normalized == "" {
 		normalized = "UTC"
 	}
 	if !slices.Contains([]string{"UTC", "ORTZ"}, normalized) {
 		return "", fmt.Errorf("--time-zone must be UTC or ORTZ")
+	}
+	if isSearchTermReportLevel(level) {
+		if !explicit && normalized == "UTC" {
+			return "ORTZ", nil
+		}
+		if normalized != "ORTZ" {
+			return "", fmt.Errorf("--time-zone must be ORTZ for search-term report levels")
+		}
 	}
 	return normalized, nil
 }

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 type adsRoundTripFunc func(*http.Request) (*http.Response, error)
@@ -106,8 +107,16 @@ func TestAdsReportsPresetBuildsCampaignRequest(t *testing.T) {
 		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 			t.Fatalf("decode body: %v", err)
 		}
-		if body.StartTime != "2026-05-01" || body.EndTime != "2026-05-31" {
-			t.Fatalf("date range = %s..%s, want May 2026", body.StartTime, body.EndTime)
+		startDate, err := time.Parse("2006-01-02", body.StartTime)
+		if err != nil {
+			t.Fatalf("startTime = %q, want YYYY-MM-DD", body.StartTime)
+		}
+		endDate, err := time.Parse("2006-01-02", body.EndTime)
+		if err != nil {
+			t.Fatalf("endTime = %q, want YYYY-MM-DD", body.EndTime)
+		}
+		if endDate.Sub(startDate) != 6*24*time.Hour {
+			t.Fatalf("date range = %s..%s, want 7-day hourly window", body.StartTime, body.EndTime)
 		}
 		if body.Granularity != "HOURLY" || body.TimeZone != "UTC" || !body.ReturnRowTotals {
 			t.Fatalf("report options = %+v, want hourly UTC totals", body)
@@ -128,8 +137,7 @@ func TestAdsReportsPresetBuildsCampaignRequest(t *testing.T) {
 	args := []string{
 		"ads", "reports", "preset",
 		"--level", "campaigns",
-		"--from", "2026-05-01",
-		"--to", "2026-05-31",
+		"--last-days", "7",
 		"--fields", "campaignName,impressions,taps,spend",
 		"--granularity", "hourly",
 		"--sort", "impressions:desc",
@@ -303,13 +311,23 @@ func TestAdsReportsPresetValidatesUsageBeforeNetwork(t *testing.T) {
 		},
 		{
 			name:    "hourly unsupported for search terms",
-			args:    []string{"ads", "reports", "preset", "--level", "search-terms", "--campaign", "12345", "--from", "2026-05-01", "--to", "2026-05-31", "--granularity", "HOURLY", "--output", "json"},
+			args:    []string{"ads", "reports", "preset", "--level", "search-terms", "--campaign", "12345", "--from", "2026-05-26", "--to", "2026-06-01", "--granularity", "HOURLY", "--output", "json"},
 			wantErr: "--granularity HOURLY is only supported",
 		},
 		{
 			name:    "hourly unsupported for ads",
-			args:    []string{"ads", "reports", "preset", "--level", "ads", "--campaign", "12345", "--from", "2026-05-01", "--to", "2026-05-31", "--granularity", "HOURLY", "--sort", "impressions:desc", "--output", "json"},
+			args:    []string{"ads", "reports", "preset", "--level", "ads", "--campaign", "12345", "--from", "2026-05-26", "--to", "2026-06-01", "--granularity", "HOURLY", "--sort", "impressions:desc", "--output", "json"},
 			wantErr: "--granularity HOURLY is only supported",
+		},
+		{
+			name:    "hourly range too long",
+			args:    []string{"ads", "reports", "preset", "--level", "campaigns", "--from", "2026-05-25", "--to", "2026-06-01", "--granularity", "HOURLY", "--output", "json"},
+			wantErr: "--granularity HOURLY supports a maximum 7-day date range",
+		},
+		{
+			name:    "hourly start too old",
+			args:    []string{"ads", "reports", "preset", "--level", "campaigns", "--from", "2026-05-01", "--to", "2026-05-07", "--granularity", "HOURLY", "--output", "json"},
+			wantErr: "--granularity HOURLY start date must be within the last 30 days",
 		},
 		{
 			name:    "row totals unsupported for search terms",
@@ -320,6 +338,11 @@ func TestAdsReportsPresetValidatesUsageBeforeNetwork(t *testing.T) {
 			name:    "invalid time zone",
 			args:    []string{"ads", "reports", "preset", "--level", "campaigns", "--last-days", "1", "--time-zone", "America/Los_Angeles", "--output", "json"},
 			wantErr: "--time-zone must be UTC or ORTZ",
+		},
+		{
+			name:    "search terms require explicit ORTZ",
+			args:    []string{"ads", "reports", "preset", "--level", "search-terms", "--campaign", "12345", "--from", "2026-05-01", "--to", "2026-05-31", "--time-zone", "UTC", "--output", "json"},
+			wantErr: "--time-zone must be ORTZ for search-term report levels",
 		},
 		{
 			name:    "last days require UTC",
