@@ -385,10 +385,7 @@ Examples:
 			if err != nil {
 				return fmt.Errorf("ads auth discover: %w", err)
 			}
-			orgID, orgSource, err := resolveOrgIDWithSource(common, credentials)
-			if err != nil {
-				return fmt.Errorf("ads auth discover: %w", err)
-			}
+			orgID, orgSource := discoverOrgIDWithSource(common, credentials)
 			client, err := appleads.NewClient(credentials)
 			if err != nil {
 				return fmt.Errorf("ads auth discover: %w", err)
@@ -431,6 +428,14 @@ Examples:
 			return nil
 		},
 	}
+}
+
+func discoverOrgIDWithSource(flags commonFlags, credentials appleads.Credentials) (string, string) {
+	orgID, orgSource, err := resolveOrgIDWithSource(flags, credentials)
+	if err != nil {
+		return "", ""
+	}
+	return orgID, orgSource
 }
 
 type adsAuthDiscoveryOutput struct {

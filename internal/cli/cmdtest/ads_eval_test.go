@@ -302,6 +302,52 @@ func TestAdsAuthDiscoverRejectsMalformedDiscoveryResponses(t *testing.T) {
 	}
 }
 
+func TestAdsAuthDiscoverContinuesWhenOptionalOrgConfigIsInvalid(t *testing.T) {
+	t.Setenv("ASC_ADS_ACCESS_TOKEN", "ACCESS")
+	configPath := writeAdsEvalPayload(t, "config.json", `{"ads":`)
+	t.Setenv("ASC_CONFIG_PATH", configPath)
+
+	installDefaultTransport(t, adsRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		assertAdsEvalBearer(t, req)
+		assertAdsEvalNoOrg(t, req)
+		assertAdsEvalNoBody(t, req)
+
+		switch req.URL.Path {
+		case "/api/v5/me":
+			return adsJSONResponse(200, `{"data":{"id":"user-1","name":"Ada Example"}}`), nil
+		case "/api/v5/acls":
+			return adsJSONResponse(200, `{"data":[{"orgId":987654,"orgName":"Example Org"}]}`), nil
+		default:
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
+			return nil, nil
+		}
+	}))
+
+	stdout, stderr, err := runAdsEvalCommand(t, "ads", "auth", "discover", "--output", "json")
+	if err != nil {
+		t.Fatalf("discover error: %v\nstderr: %s", err, stderr)
+	}
+	if stderr != "" {
+		t.Fatalf("discover stderr = %q, want empty", stderr)
+	}
+	var result struct {
+		OrgID       string `json:"org_id"`
+		OrgIDSource string `json:"org_id_source"`
+		Accounts    []struct {
+			OrgID string `json:"org_id"`
+		} `json:"accounts"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("discover stdout is not JSON: %v\n%s", err, stdout)
+	}
+	if result.OrgID != "" || result.OrgIDSource != "" {
+		t.Fatalf("org context = %+v, want no selected org from invalid config", result)
+	}
+	if len(result.Accounts) != 1 || result.Accounts[0].OrgID != "987654" {
+		t.Fatalf("accounts = %+v, want discovered account despite invalid config", result.Accounts)
+	}
+}
+
 func TestAdsAgentMutationEvalWorkflow(t *testing.T) {
 	t.Setenv("ASC_ADS_ACCESS_TOKEN", "ACCESS")
 	t.Setenv("ASC_ADS_ORG_ID", "987654")
