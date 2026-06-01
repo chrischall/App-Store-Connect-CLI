@@ -85,6 +85,9 @@ func buildNodeCommand(node *commandNode, parentPath []string) *ffcli.Command {
 	for _, name := range sortedChildNames(node) {
 		subcommands = append(subcommands, buildNodeCommand(node.children[name], path))
 	}
+	if len(path) == 1 && path[0] == "reports" {
+		subcommands = append(subcommands, ReportsPresetCommand())
+	}
 	subcommands = append(subcommands, workflowSubcommands(path, &flags)...)
 
 	command := &ffcli.Command{
@@ -120,6 +123,10 @@ func sortedChildNames(node *commandNode) []string {
 func endpointShortHelp(node *commandNode) string {
 	if node.spec == nil {
 		return endpointGroupHelp(node.name)
+	}
+	switch node.spec.Name {
+	case "get-me-details", "get-user-acl":
+		return sentenceFromEndpointName(node.spec.Name)
 	}
 	if len(node.children) > 0 {
 		return "Manage Apple Ads " + strings.ReplaceAll(node.name, "-", " ") + "."
