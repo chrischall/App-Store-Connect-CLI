@@ -93,7 +93,7 @@ func ReportsPresetCommand() *ffcli.Command {
 		lastDays:        fs.Int("last-days", 0, "Use an inclusive UTC range ending today"),
 		granularity:     fs.String("granularity", "DAILY", "Report granularity: HOURLY, DAILY, WEEKLY, MONTHLY"),
 		fields:          fs.String("fields", "", "Comma-separated selector fields to request"),
-		sort:            fs.String("sort", "-impressions", "Sort by field; prefix with - for descending, e.g. -impressions"),
+		sort:            fs.String("sort", "-impressions", "Sort field; omit direction or prefix with - for descending, use field:asc for ascending"),
 		limit:           fs.Int("limit", 1000, "Report row limit (1..1000)"),
 		offset:          fs.Int("offset", 0, "Report row offset (>=0)"),
 		timeZone:        fs.String("time-zone", "UTC", "Apple Ads reporting time zone: UTC or ORTZ"),
@@ -411,10 +411,7 @@ func parseReportPresetSort(value string) (adsReportPresetSort, error) {
 		return adsReportPresetSort{}, fmt.Errorf("--sort field is required")
 	}
 	field = normalizeReportPresetField(field)
-	sortOrder := "ASCENDING"
-	if prefixedDescending {
-		sortOrder = "DESCENDING"
-	}
+	sortOrder := "DESCENDING"
 	if ok {
 		switch strings.ToLower(strings.TrimSpace(direction)) {
 		case "asc", "ascending":

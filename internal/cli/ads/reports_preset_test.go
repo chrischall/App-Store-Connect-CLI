@@ -352,8 +352,8 @@ func TestParseReportPresetSort(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseReportPresetSort() error: %v", err)
 	}
-	if sortSpec.Field != "impressions" || sortSpec.SortOrder != "ASCENDING" {
-		t.Fatalf("sort = %+v, want impressions ASCENDING", sortSpec)
+	if sortSpec.Field != "impressions" || sortSpec.SortOrder != "DESCENDING" {
+		t.Fatalf("sort = %+v, want impressions DESCENDING", sortSpec)
 	}
 
 	sortSpec, err = parseReportPresetSort("-impressions")
