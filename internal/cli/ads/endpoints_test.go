@@ -41,6 +41,35 @@ func TestAdsCommandRegistersEveryEndpointSpec(t *testing.T) {
 	}
 }
 
+func TestAdsCampaignsHelpReadsAsManagementSurface(t *testing.T) {
+	root := AdsCommand()
+	campaigns := findCommand(root, "campaigns")
+	if campaigns == nil {
+		t.Fatal("missing campaigns command")
+	}
+	if campaigns.ShortHelp != "Manage Apple Ads campaigns." {
+		t.Fatalf("campaigns ShortHelp = %q, want management surface", campaigns.ShortHelp)
+	}
+	if campaigns.FlagSet.Lookup("campaign") != nil {
+		t.Fatal("campaigns list alias should not expose workflow-only --campaign flag")
+	}
+
+	resume := findCommand(root, "campaigns", "resume")
+	if resume == nil {
+		t.Fatal("missing campaigns resume command")
+	}
+	campaignFlag := resume.FlagSet.Lookup("campaign")
+	if campaignFlag == nil {
+		t.Fatal("resume command missing --campaign flag")
+	}
+	if got := campaignFlag.Usage; got != "Apple Ads campaign ID (required)" {
+		t.Fatalf("resume --campaign usage = %q, want operator-friendly wording", got)
+	}
+	if !strings.Contains(resume.LongHelp, "--campaign CAMPAIGN_ID --confirm --org ORG_ID") {
+		t.Fatalf("resume LongHelp = %q, want campaign ID example", resume.LongHelp)
+	}
+}
+
 func TestCollectQueryValidatesEndpointSpecificLimitsAndEnums(t *testing.T) {
 	customReports, _ := appleads.EndpointByCommandPath("impression-share-reports", "list")
 	fs, flags := bindEndpointFlags(customReports, "test")
