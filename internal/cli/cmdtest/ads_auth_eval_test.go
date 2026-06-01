@@ -253,6 +253,20 @@ func TestAdsAuthStatusKeepsAuthSourceWhenOptionalOrgConfigIsInvalid(t *testing.T
 			t.Fatalf("table status = %q, missing %q", stdout, want)
 		}
 	}
+
+	stdout, stderr, err = runAdsEvalCommand(t, "ads", "auth", "status", "--validate", "--output", "json")
+	if _, ok := errors.AsType[ReportedError](err); !ok {
+		t.Fatalf("validate status error = %T %v, want ReportedError", err, err)
+	}
+	if !strings.Contains(err.Error(), "validation skipped because credentials could not be listed") {
+		t.Fatalf("validate status error = %v, want validation skipped error", err)
+	}
+	if stderr != "" {
+		t.Fatalf("validate status stderr = %q, want empty", stderr)
+	}
+	if !strings.Contains(stdout, `"source":"ASC_ADS_ACCESS_TOKEN"`) || !strings.Contains(stdout, `"credentials_error"`) {
+		t.Fatalf("validate status stdout = %q, want active source and credentials_error", stdout)
+	}
 }
 
 func TestAdsAuthEvalValidatesUsageErrors(t *testing.T) {

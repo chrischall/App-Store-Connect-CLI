@@ -231,6 +231,9 @@ Examples:
 			} else {
 				printStatusTable(result)
 			}
+			if *validate && credentialsError != "" {
+				return shared.NewReportedError(fmt.Errorf("ads auth status: validation skipped because credentials could not be listed: %s", credentialsError))
+			}
 			if failures > 0 {
 				return shared.NewReportedError(fmt.Errorf("ads auth status: validation failed for %d credential(s)", failures))
 			}
