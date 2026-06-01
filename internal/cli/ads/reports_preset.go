@@ -181,7 +181,9 @@ func executeReportsPreset(ctx context.Context, flags adsReportPresetFlags) error
 
 func reportPresetPathParams(spec appleads.EndpointSpec, flags adsReportPresetFlags) (map[string]string, error) {
 	params := map[string]string{}
+	usedFlags := map[string]bool{}
 	for _, param := range spec.PathParams {
+		usedFlags[param.Flag] = true
 		var raw string
 		switch param.Name {
 		case "campaignId":
@@ -202,6 +204,13 @@ func reportPresetPathParams(spec appleads.EndpointSpec, flags adsReportPresetFla
 			return nil, fmt.Errorf("--%s must be >= 0", param.Flag)
 		}
 		params[param.Name] = raw
+	}
+	level := strings.TrimSpace(*flags.level)
+	if !usedFlags["campaign"] && strings.TrimSpace(*flags.campaign) != "" {
+		return nil, fmt.Errorf("--campaign is not supported for --level %s", level)
+	}
+	if !usedFlags["ad-group"] && strings.TrimSpace(*flags.adGroup) != "" {
+		return nil, fmt.Errorf("--ad-group is not supported for --level %s", level)
 	}
 	return params, nil
 }

@@ -300,6 +300,16 @@ func TestAdsReportsPresetValidatesUsageBeforeNetwork(t *testing.T) {
 			wantErr: "--campaign must be >= 0",
 		},
 		{
+			name:    "campaign unsupported for campaign level",
+			args:    []string{"ads", "reports", "preset", "--level", "campaigns", "--campaign", "12345", "--from", "2026-05-01", "--to", "2026-05-31", "--output", "json"},
+			wantErr: "--campaign is not supported for --level campaigns",
+		},
+		{
+			name:    "ad group unsupported for keyword level",
+			args:    []string{"ads", "reports", "preset", "--level", "keywords", "--campaign", "12345", "--ad-group", "67890", "--from", "2026-05-01", "--to", "2026-05-31", "--output", "json"},
+			wantErr: "--ad-group is not supported for --level keywords",
+		},
+		{
 			name:    "invalid sort direction",
 			args:    []string{"ads", "reports", "preset", "--level", "campaigns", "--from", "2026-05-01", "--to", "2026-05-31", "--sort", "impressions:sideways", "--output", "json"},
 			wantErr: "--sort direction must be asc or desc",
