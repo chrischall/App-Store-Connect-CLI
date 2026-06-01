@@ -109,8 +109,8 @@ func TestAdsReportsPresetBuildsCampaignRequest(t *testing.T) {
 		if body.StartTime != "2026-05-01" || body.EndTime != "2026-05-31" {
 			t.Fatalf("date range = %s..%s, want May 2026", body.StartTime, body.EndTime)
 		}
-		if body.Granularity != "DAILY" || body.TimeZone != "UTC" || !body.ReturnRowTotals {
-			t.Fatalf("report options = %+v, want daily UTC totals", body)
+		if body.Granularity != "HOURLY" || body.TimeZone != "UTC" || !body.ReturnRowTotals {
+			t.Fatalf("report options = %+v, want hourly UTC totals", body)
 		}
 		if strings.Join(body.Selector.Fields, ",") != "campaignName,impressions,taps,spend" {
 			t.Fatalf("fields = %v", body.Selector.Fields)
@@ -131,6 +131,7 @@ func TestAdsReportsPresetBuildsCampaignRequest(t *testing.T) {
 		"--from", "2026-05-01",
 		"--to", "2026-05-31",
 		"--fields", "campaignName,impressions,taps,spend",
+		"--granularity", "hourly",
 		"--sort", "impressions:desc",
 		"--limit", "25",
 		"--offset", "5",
@@ -294,6 +295,26 @@ func TestAdsReportsPresetValidatesUsageBeforeNetwork(t *testing.T) {
 			name:    "invalid sort direction",
 			args:    []string{"ads", "reports", "preset", "--level", "campaigns", "--from", "2026-05-01", "--to", "2026-05-31", "--sort", "impressions:sideways", "--output", "json"},
 			wantErr: "--sort direction must be asc or desc",
+		},
+		{
+			name:    "invalid granularity",
+			args:    []string{"ads", "reports", "preset", "--level", "campaigns", "--from", "2026-05-01", "--to", "2026-05-31", "--granularity", "YEARLY", "--output", "json"},
+			wantErr: "--granularity must be one of: HOURLY, DAILY, WEEKLY, MONTHLY",
+		},
+		{
+			name:    "hourly unsupported for search terms",
+			args:    []string{"ads", "reports", "preset", "--level", "search-terms", "--campaign", "12345", "--from", "2026-05-01", "--to", "2026-05-31", "--time-zone", "ORTZ", "--granularity", "HOURLY", "--output", "json"},
+			wantErr: "--granularity HOURLY is only supported",
+		},
+		{
+			name:    "hourly unsupported for ads",
+			args:    []string{"ads", "reports", "preset", "--level", "ads", "--campaign", "12345", "--from", "2026-05-01", "--to", "2026-05-31", "--granularity", "HOURLY", "--sort", "impressions:desc", "--output", "json"},
+			wantErr: "--granularity HOURLY is only supported",
+		},
+		{
+			name:    "row totals unsupported for search terms",
+			args:    []string{"ads", "reports", "preset", "--level", "search-terms", "--campaign", "12345", "--from", "2026-05-01", "--to", "2026-05-31", "--time-zone", "ORTZ", "--return-row-totals", "--output", "json"},
+			wantErr: "--return-row-totals cannot be used with search-term report levels",
 		},
 		{
 			name:    "invalid time zone",

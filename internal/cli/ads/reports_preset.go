@@ -90,7 +90,7 @@ func ReportsPresetCommand() *ffcli.Command {
 		from:            fs.String("from", "", "Start date in YYYY-MM-DD"),
 		to:              fs.String("to", "", "End date in YYYY-MM-DD"),
 		lastDays:        fs.Int("last-days", 0, "Use an inclusive UTC range ending today"),
-		granularity:     fs.String("granularity", "DAILY", "Report granularity: DAILY, WEEKLY, MONTHLY"),
+		granularity:     fs.String("granularity", "DAILY", "Report granularity: HOURLY, DAILY, WEEKLY, MONTHLY"),
 		fields:          fs.String("fields", "", "Comma-separated selector fields to request"),
 		sort:            fs.String("sort", "", "Sort field with optional direction, e.g. impressions:desc"),
 		limit:           fs.Int("limit", 1000, "Report row limit (1..1000)"),
@@ -114,7 +114,9 @@ Apple Ads accepts UTC and ORTZ (organization time zone) for --time-zone. Use
 requesting ORTZ because Apple Ads resolves the organization time zone. Use the
 raw report commands with --file when you need custom conditions or advanced
 selector JSON. Ad-level reports require --sort because Apple Ads requires
-selector.orderBy for that endpoint.
+selector.orderBy for that endpoint. HOURLY granularity is available for
+campaign, ad-group, and keyword report levels. Search-term report levels cannot
+request row totals while granularity is set.
 
 Examples:
   asc ads reports preset --level campaigns --from 2026-05-01 --to 2026-05-31 --fields campaignName,impressions,taps,spend --sort impressions:desc --org "123456"
@@ -207,11 +209,8 @@ func buildReportPresetPayload(flags adsReportPresetFlags, now time.Time) (adsRep
 		return adsReportPresetPayload{}, err
 	}
 	granularity := strings.ToUpper(strings.TrimSpace(*flags.granularity))
-	if granularity == "" {
-		return adsReportPresetPayload{}, fmt.Errorf("--granularity is required")
-	}
-	if !slices.Contains([]string{"DAILY", "WEEKLY", "MONTHLY"}, granularity) {
-		return adsReportPresetPayload{}, fmt.Errorf("--granularity must be one of: DAILY, WEEKLY, MONTHLY")
+	if err := validateReportPresetGranularity(level, granularity); err != nil {
+		return adsReportPresetPayload{}, err
 	}
 	if *flags.limit < 1 || *flags.limit > appleads.MaxPageLimit(appleads.EndpointSpec{}) {
 		return adsReportPresetPayload{}, fmt.Errorf("--limit must be between 1 and 1000")
@@ -221,6 +220,9 @@ func buildReportPresetPayload(flags adsReportPresetFlags, now time.Time) (adsRep
 	}
 	if level == "ads" && strings.TrimSpace(*flags.sort) == "" {
 		return adsReportPresetPayload{}, fmt.Errorf("--sort is required for --level ads")
+	}
+	if isSearchTermReportLevel(level) && *flags.returnRowTotals {
+		return adsReportPresetPayload{}, fmt.Errorf("--return-row-totals cannot be used with search-term report levels when --granularity is set")
 	}
 
 	selector := adsReportPresetSelector{
@@ -245,6 +247,19 @@ func buildReportPresetPayload(flags adsReportPresetFlags, now time.Time) (adsRep
 		Selector:        selector,
 		TimeZone:        reportingTimeZone,
 	}, nil
+}
+
+func validateReportPresetGranularity(level string, granularity string) error {
+	if granularity == "" {
+		return fmt.Errorf("--granularity is required")
+	}
+	if !slices.Contains([]string{"HOURLY", "DAILY", "WEEKLY", "MONTHLY"}, granularity) {
+		return fmt.Errorf("--granularity must be one of: HOURLY, DAILY, WEEKLY, MONTHLY")
+	}
+	if granularity == "HOURLY" && !slices.Contains([]string{"campaigns", "ad-groups", "keywords", "ad-group-keywords"}, level) {
+		return fmt.Errorf("--granularity HOURLY is only supported for campaign, ad-group, and keyword report levels")
+	}
+	return nil
 }
 
 func reportPresetDateRange(from, to string, lastDays int, now time.Time, reportingTimeZone string) (string, string, error) {
@@ -290,10 +305,14 @@ func normalizeReportPresetTimeZone(value string, level string) (string, error) {
 	if !slices.Contains([]string{"UTC", "ORTZ"}, normalized) {
 		return "", fmt.Errorf("--time-zone must be UTC or ORTZ")
 	}
-	if slices.Contains([]string{"search-terms", "ad-group-search-terms"}, level) && normalized != "ORTZ" {
+	if isSearchTermReportLevel(level) && normalized != "ORTZ" {
 		return "", fmt.Errorf("--time-zone must be ORTZ for search-term report levels")
 	}
 	return normalized, nil
+}
+
+func isSearchTermReportLevel(level string) bool {
+	return slices.Contains([]string{"search-terms", "ad-group-search-terms"}, level)
 }
 
 func parseReportPresetDate(flagName string, value string) (time.Time, error) {

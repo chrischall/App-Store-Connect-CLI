@@ -26,6 +26,8 @@ func TestReportsPresetCommandHelpShowsOperatorGuidance(t *testing.T) {
 		"Apple Ads accepts UTC and ORTZ",
 		"--last-days for an inclusive UTC rolling date range",
 		"Ad-level reports require --sort",
+		"HOURLY granularity is available for\ncampaign, ad-group, and keyword report levels",
+		"Search-term report levels cannot\nrequest row totals while granularity is set",
 		"asc ads reports preset --level ads --campaign 12345 --from 2026-05-01 --to 2026-05-31 --sort impressions:desc",
 	} {
 		if !strings.Contains(cmd.LongHelp, want) {
@@ -37,6 +39,9 @@ func TestReportsPresetCommandHelpShowsOperatorGuidance(t *testing.T) {
 	}
 	if got := cmd.FlagSet.Lookup("time-zone").Usage; got != "Apple Ads reporting time zone: UTC or ORTZ" {
 		t.Fatalf("--time-zone usage = %q", got)
+	}
+	if got := cmd.FlagSet.Lookup("granularity").Usage; got != "Report granularity: HOURLY, DAILY, WEEKLY, MONTHLY" {
+		t.Fatalf("--granularity usage = %q", got)
 	}
 }
 
@@ -113,6 +118,80 @@ func TestBuildReportPresetPayloadRequiresSortForAds(t *testing.T) {
 	), time.Date(2026, 6, 1, 1, 0, 0, 0, time.UTC))
 	if err == nil || !strings.Contains(err.Error(), "--sort is required for --level ads") {
 		t.Fatalf("error = %v, want ad-level sort validation", err)
+	}
+}
+
+func TestBuildReportPresetPayloadAllowsHourlyWhereSupported(t *testing.T) {
+	for _, level := range []string{"campaigns", "ad-groups", "keywords", "ad-group-keywords"} {
+		t.Run(level, func(t *testing.T) {
+			flags := reportPresetTestFlags(
+				level,
+				"12345",
+				"2026-05-01",
+				"2026-05-31",
+				0,
+				"UTC",
+			)
+			granularity := "hourly"
+			flags.granularity = &granularity
+
+			payload, err := buildReportPresetPayload(flags, time.Date(2026, 6, 1, 1, 0, 0, 0, time.UTC))
+			if err != nil {
+				t.Fatalf("buildReportPresetPayload() error: %v", err)
+			}
+			if payload.Granularity != "HOURLY" {
+				t.Fatalf("granularity = %q, want HOURLY", payload.Granularity)
+			}
+		})
+	}
+}
+
+func TestBuildReportPresetPayloadRejectsHourlyWhereUnsupported(t *testing.T) {
+	for _, tt := range []struct {
+		level    string
+		timeZone string
+		sort     string
+	}{
+		{level: "search-terms", timeZone: "ORTZ"},
+		{level: "ad-group-search-terms", timeZone: "ORTZ"},
+		{level: "ads", timeZone: "UTC", sort: "impressions:desc"},
+	} {
+		t.Run(tt.level, func(t *testing.T) {
+			flags := reportPresetTestFlags(
+				tt.level,
+				"12345",
+				"2026-05-01",
+				"2026-05-31",
+				0,
+				tt.timeZone,
+			)
+			granularity := "HOURLY"
+			flags.granularity = &granularity
+			flags.sort = &tt.sort
+
+			_, err := buildReportPresetPayload(flags, time.Date(2026, 6, 1, 1, 0, 0, 0, time.UTC))
+			if err == nil || !strings.Contains(err.Error(), "--granularity HOURLY is only supported") {
+				t.Fatalf("error = %v, want hourly level validation", err)
+			}
+		})
+	}
+}
+
+func TestBuildReportPresetPayloadRejectsRowTotalsForSearchTerms(t *testing.T) {
+	flags := reportPresetTestFlags(
+		"search-terms",
+		"12345",
+		"2026-05-01",
+		"2026-05-31",
+		0,
+		"ORTZ",
+	)
+	returnRowTotals := true
+	flags.returnRowTotals = &returnRowTotals
+
+	_, err := buildReportPresetPayload(flags, time.Date(2026, 6, 1, 1, 0, 0, 0, time.UTC))
+	if err == nil || !strings.Contains(err.Error(), "--return-row-totals cannot be used with search-term report levels") {
+		t.Fatalf("error = %v, want row totals search-term validation", err)
 	}
 }
 
