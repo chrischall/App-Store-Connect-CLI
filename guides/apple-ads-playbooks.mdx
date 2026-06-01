@@ -34,8 +34,11 @@ export ASC_ADS_PRIVATE_KEY_PATH="$HOME/.asc/apple-ads-private-key.pem"
 export ASC_ADS_ORG_ID="123456"
 export ASC_ADS_BYPASS_KEYCHAIN=1
 
-asc ads auth status --output json
+asc ads campaigns list --org "$ASC_ADS_ORG_ID" --limit 1 --output json
 ```
+
+Use a read-only API command for CI validation so the run resolves the exported
+`ASC_ADS_*` credentials and org context instead of only listing stored profiles.
 
 Use `ASC_ADS_PRIVATE_KEY_B64` when your CI secret store handles single-line
 values more reliably than PEM blocks. Keep `ASC_ADS_ACCESS_TOKEN` for cases
@@ -74,7 +77,6 @@ asc ads campaigns list \
 Use this sequence before an automation run or after rotating credentials:
 
 ```bash  theme={null}
-asc ads auth status --validate --output json
 asc ads me view --output json
 asc ads acls list --output json
 asc ads campaigns list --org "123456" --limit 1 --output json
@@ -83,6 +85,13 @@ asc ads campaigns list --org "123456" --limit 1 --output json
 Expected result: every command exits successfully, and the campaign list returns
 either a `data` array or an empty `data` array. Treat auth failures, missing org
 errors, or unexpected account names as stop conditions.
+
+When using stored Ads profiles, add profile validation before the API smoke
+test:
+
+```bash  theme={null}
+asc ads auth status --validate --output json
+```
 
 ## Campaign and Ad Group Inventory
 
