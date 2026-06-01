@@ -410,6 +410,7 @@ func parseReportPresetSort(value string) (adsReportPresetSort, error) {
 	if field == "" {
 		return adsReportPresetSort{}, fmt.Errorf("--sort field is required")
 	}
+	field = normalizeReportPresetField(field)
 	sortOrder := "ASCENDING"
 	if prefixedDescending {
 		sortOrder = "DESCENDING"
@@ -430,11 +431,16 @@ func parseReportPresetSort(value string) (adsReportPresetSort, error) {
 func normalizeReportPresetFields(value string) []string {
 	fields := shared.SplitCSV(value)
 	for index, field := range fields {
-		if field == "spend" {
-			fields[index] = "localSpend"
-		}
+		fields[index] = normalizeReportPresetField(field)
 	}
 	return fields
+}
+
+func normalizeReportPresetField(field string) string {
+	if field == "spend" {
+		return "localSpend"
+	}
+	return field
 }
 
 func sortedReportPresetLevels() []string {
