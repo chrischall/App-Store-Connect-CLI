@@ -329,6 +329,7 @@ Apple Ads uses separate OAuth credentials from App Store Connect:
 
 ```bash
 asc ads auth login --name "Marketing" --client-id "SEARCHADS_CLIENT_ID" --team-id "SEARCHADS_TEAM_ID" --key-id "KEY_ID" --private-key ./ads-key.pem --org "123456"
+asc ads auth discover --output json
 asc ads campaigns --org "123456" --limit 100 --output json
 asc ads reports campaigns --org "123456" --file reporting-request.json --output json
 ```

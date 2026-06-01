@@ -135,6 +135,74 @@ func TestAdsAuthStatusShowsActiveEnvironmentContext(t *testing.T) {
 	}
 }
 
+func TestAdsAuthStatusSurfacesMissingNamedProfile(t *testing.T) {
+	configPath := writeAdsEvalPayload(t, "config.json", `{"ads":{"keys":[]}}`)
+	t.Setenv("ASC_CONFIG_PATH", configPath)
+	t.Setenv("ASC_ADS_BYPASS_KEYCHAIN", "1")
+	t.Setenv("ASC_ADS_PROFILE", "Missing")
+
+	stdout, stderr, err := runAdsEvalCommand(t, "ads", "auth", "status", "--output", "json")
+	if err != nil {
+		t.Fatalf("status error: %v\nstderr: %s", err, stderr)
+	}
+	if stderr != "" {
+		t.Fatalf("status stderr = %q, want empty", stderr)
+	}
+	var status struct {
+		Active struct {
+			Error string `json:"error"`
+		} `json:"active"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &status); err != nil {
+		t.Fatalf("status stdout is not JSON: %v\n%s", err, stdout)
+	}
+	if !strings.Contains(status.Active.Error, `credentials not found for profile "Missing"`) {
+		t.Fatalf("active.error = %q, want missing named profile", status.Active.Error)
+	}
+
+	stdout, stderr, err = runAdsEvalCommand(t, "ads", "auth", "status")
+	if err != nil {
+		t.Fatalf("table status error: %v\nstderr: %s", err, stderr)
+	}
+	if stderr != "" {
+		t.Fatalf("table status stderr = %q, want empty", stderr)
+	}
+	if !strings.Contains(stdout, `Active auth: unavailable (credentials not found for profile "Missing")`) {
+		t.Fatalf("table status = %q, want missing named profile surfaced", stdout)
+	}
+}
+
+func TestAdsAuthStatusOmitsBlankConfigOrgSource(t *testing.T) {
+	configPath := writeAdsEvalPayload(t, "config.json", `{"ads":{"org_id":"   "}}`)
+	t.Setenv("ASC_CONFIG_PATH", configPath)
+	t.Setenv("ASC_ADS_BYPASS_KEYCHAIN", "1")
+	t.Setenv("ASC_ADS_ACCESS_TOKEN", "ACCESS")
+
+	stdout, stderr, err := runAdsEvalCommand(t, "ads", "auth", "status", "--output", "json")
+	if err != nil {
+		t.Fatalf("status error: %v\nstderr: %s", err, stderr)
+	}
+	if stderr != "" {
+		t.Fatalf("status stderr = %q, want empty", stderr)
+	}
+	var status struct {
+		Active struct {
+			Source      string `json:"source"`
+			OrgID       string `json:"org_id"`
+			OrgIDSource string `json:"org_id_source"`
+		} `json:"active"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &status); err != nil {
+		t.Fatalf("status stdout is not JSON: %v\n%s", err, stdout)
+	}
+	if status.Active.Source != "ASC_ADS_ACCESS_TOKEN" {
+		t.Fatalf("active.source = %q, want ASC_ADS_ACCESS_TOKEN", status.Active.Source)
+	}
+	if status.Active.OrgID != "" || status.Active.OrgIDSource != "" {
+		t.Fatalf("active org = %+v, want no org ID or source", status.Active)
+	}
+}
+
 func TestAdsAuthEvalValidatesUsageErrors(t *testing.T) {
 	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
 	t.Setenv("ASC_ADS_BYPASS_KEYCHAIN", "1")

@@ -153,7 +153,11 @@ func resolveOrgIDWithSource(flags commonFlags, credentials appleads.Credentials)
 		}
 		return "", "", err
 	}
-	return strings.TrimSpace(cfg.Ads.OrgID), "ads.org_id", nil
+	orgID := strings.TrimSpace(cfg.Ads.OrgID)
+	if orgID == "" {
+		return "", "", nil
+	}
+	return orgID, "ads.org_id", nil
 }
 
 func requestContext(ctx context.Context) (context.Context, context.CancelFunc) {

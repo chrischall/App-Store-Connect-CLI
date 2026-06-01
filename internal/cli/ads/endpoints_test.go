@@ -258,6 +258,28 @@ func TestCollectQueryIncludesAllowedValidValues(t *testing.T) {
 	}
 }
 
+func TestEndpointHelpUsesOperatorFriendlyAuthDiscoveryNames(t *testing.T) {
+	root := AdsCommand()
+	tests := []struct {
+		path []string
+		want string
+	}{
+		{path: []string{"me"}, want: "View the current Apple Ads user."},
+		{path: []string{"me", "view"}, want: "View the current Apple Ads user."},
+		{path: []string{"acls"}, want: "List Apple Ads account ACLs."},
+		{path: []string{"acls", "list"}, want: "List Apple Ads account ACLs."},
+	}
+	for _, test := range tests {
+		cmd := findCommand(root, test.path...)
+		if cmd == nil {
+			t.Fatalf("missing command asc ads %s", strings.Join(test.path, " "))
+		}
+		if cmd.ShortHelp != test.want {
+			t.Fatalf("asc ads %s ShortHelp = %q, want %q", strings.Join(test.path, " "), cmd.ShortHelp, test.want)
+		}
+	}
+}
+
 func findCommand(root *ffcli.Command, path ...string) *ffcli.Command {
 	current := root
 	for _, part := range path {

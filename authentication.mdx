@@ -223,6 +223,7 @@ Validate Apple Ads credentials:
 
 ```bash  theme={null}
 asc ads auth status --validate
+asc ads auth discover --output json
 asc ads auth doctor
 ```
 
@@ -240,7 +241,9 @@ wins over `ASC_ADS_ACCESS_TOKEN`. Set `ASC_ADS_STRICT_AUTH=true` to fail when a
 profile and access token are both present.
 
 Most Apple Ads commands also require an organization ID. Set it with `--org`,
-store it during Ads login, or export `ASC_ADS_ORG_ID`.
+store it during Ads login, or export `ASC_ADS_ORG_ID`. If you do not know the
+right organization ID yet, run `asc ads auth discover --output json` and inspect
+the `accounts` list.
 
 ## Validate credentials
 

@@ -66,6 +66,7 @@ Validate and inspect stored credentials:
 
 ```bash  theme={null}
 asc ads auth status --validate
+asc ads auth discover --output json
 asc ads auth doctor
 ```
 
@@ -104,13 +105,13 @@ asc ads campaigns --limit 10 --output json
 
 Most Apple Ads endpoints require an organization context. Provide it with
 `--org`, store it during login with `--org`, or set `ASC_ADS_ORG_ID`. If you do
-not know the org ID yet, list the account ACLs first:
+not know the org ID yet, discover the active Ads user and available accounts:
 
 ```bash  theme={null}
-asc ads acls --output json
+asc ads auth discover --output json
 ```
 
-Then pass the org ID returned by Apple:
+Then pass an `accounts[].org_id` returned by Apple:
 
 ```bash  theme={null}
 asc ads campaigns list --org "123456" --output json
@@ -383,7 +384,7 @@ The raw request command only accepts Apple Ads v5 paths or
 When you automate Apple Ads with a coding agent:
 
 1. Run `asc ads <group> --help` before choosing flags.
-2. Resolve the org with `asc ads acls --output json` unless `ASC_ADS_ORG_ID` is already known.
+2. Resolve the user and org with `asc ads auth discover --output json` unless `ASC_ADS_ORG_ID` is already known.
 3. Use `--output json` for machine parsing.
 4. Put request bodies in checked-in templates or temporary JSON files, not shell-escaped inline JSON.
 5. Pass `--confirm` only after you have printed the target ID and cleanup plan.

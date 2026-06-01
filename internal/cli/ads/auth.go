@@ -30,6 +30,7 @@ Apple Ads uses OAuth client credentials and separate Apple Ads API keys.
 Examples:
   asc ads auth login --name "Ads" --client-id "SEARCHADS..." --team-id "SEARCHADS..." --key-id "KEY_ID" --private-key ./private-key.pem
   asc ads auth status
+  asc ads auth discover --output json
   asc ads auth token --confirm`,
 		FlagSet:   fs,
 		UsageFunc: shared.DefaultUsageFunc,
@@ -341,9 +342,7 @@ func isNoAdsCredentialError(err error) bool {
 	if err == nil {
 		return false
 	}
-	message := err.Error()
-	return strings.Contains(message, "default credentials not found") ||
-		strings.Contains(message, "credentials not found")
+	return err.Error() == "default credentials not found"
 }
 
 func storageDescription() string {
@@ -408,13 +407,22 @@ Examples:
 				return fmt.Errorf("ads auth discover: acl lookup failed: %w", err)
 			}
 
+			me, err := envelopeData(meRaw)
+			if err != nil {
+				return fmt.Errorf("ads auth discover: me response parse failed: %w", err)
+			}
+			accounts, err := summarizeACLAccounts(aclsRaw, orgID)
+			if err != nil {
+				return fmt.Errorf("ads auth discover: acl response parse failed: %w", err)
+			}
+
 			result := adsAuthDiscoveryOutput{
 				AuthSource:  source,
 				Profile:     credentials.Profile,
 				OrgID:       orgID,
 				OrgIDSource: orgSource,
-				Me:          envelopeData(meRaw),
-				Accounts:    summarizeACLAccounts(aclsRaw, orgID),
+				Me:          me,
+				Accounts:    accounts,
 			}
 			if normalized == "json" {
 				return shared.PrintOutput(result, "json", *output.Pretty)
@@ -446,6 +454,9 @@ func printDiscoveryTable(result adsAuthDiscoveryOutput) {
 	if result.Profile != "" {
 		fmt.Printf("Profile: %s\n", result.Profile)
 	}
+	if user := discoveryUserSummary(result.Me); user != "" {
+		fmt.Printf("User: %s\n", user)
+	}
 	if result.OrgID != "" {
 		if result.OrgIDSource != "" {
 			fmt.Printf("Selected org: %s (%s)\n", result.OrgID, result.OrgIDSource)
@@ -476,22 +487,46 @@ func printDiscoveryTable(result adsAuthDiscoveryOutput) {
 	}
 }
 
-func envelopeData(raw appleads.RawResponse) json.RawMessage {
+func discoveryUserSummary(me json.RawMessage) string {
+	var user struct {
+		ID    string `json:"id"`
+		Name  string `json:"name"`
+		Email string `json:"email"`
+	}
+	if err := json.Unmarshal(me, &user); err != nil {
+		return ""
+	}
+	switch {
+	case strings.TrimSpace(user.Name) != "" && strings.TrimSpace(user.ID) != "":
+		return strings.TrimSpace(user.Name) + " (" + strings.TrimSpace(user.ID) + ")"
+	case strings.TrimSpace(user.Name) != "":
+		return strings.TrimSpace(user.Name)
+	case strings.TrimSpace(user.Email) != "":
+		return strings.TrimSpace(user.Email)
+	default:
+		return strings.TrimSpace(user.ID)
+	}
+}
+
+func envelopeData(raw appleads.RawResponse) (json.RawMessage, error) {
 	var envelope struct {
 		Data json.RawMessage `json:"data"`
 	}
-	if err := json.Unmarshal(raw, &envelope); err != nil || len(envelope.Data) == 0 {
-		return json.RawMessage("null")
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return nil, err
 	}
-	return envelope.Data
+	if len(envelope.Data) == 0 {
+		return json.RawMessage("null"), nil
+	}
+	return envelope.Data, nil
 }
 
-func summarizeACLAccounts(raw appleads.RawResponse, activeOrgID string) []adsAuthAccountSummary {
+func summarizeACLAccounts(raw appleads.RawResponse, activeOrgID string) ([]adsAuthAccountSummary, error) {
 	var envelope struct {
 		Data []map[string]any `json:"data"`
 	}
 	if err := json.Unmarshal(raw, &envelope); err != nil {
-		return nil
+		return nil, err
 	}
 	accounts := make([]adsAuthAccountSummary, 0, len(envelope.Data))
 	for _, item := range envelope.Data {
@@ -504,7 +539,7 @@ func summarizeACLAccounts(raw appleads.RawResponse, activeOrgID string) []adsAut
 		}
 		accounts = append(accounts, account)
 	}
-	return accounts
+	return accounts, nil
 }
 
 func firstMapValue(item map[string]any, keys ...string) any {
