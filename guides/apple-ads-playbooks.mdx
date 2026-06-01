@@ -49,12 +49,11 @@ where another trusted system already minted a short-lived token.
 Start outside an org context. These commands do not require `--org`:
 
 ```bash  theme={null}
-asc ads me view --output json
 asc ads acls list --output json
 ```
 
-Use the ACL response to choose the org ID, then pin it explicitly for the rest
-of the session:
+Use the ACL response to confirm the account and choose the org ID, then pin it
+explicitly for the rest of the session:
 
 ```bash  theme={null}
 export ASC_ADS_ORG_ID="123456"
@@ -77,7 +76,6 @@ asc ads campaigns list \
 Use this sequence before an automation run or after rotating credentials:
 
 ```bash  theme={null}
-asc ads me view --output json
 asc ads acls list --output json
 asc ads campaigns list --org "123456" --limit 1 --output json
 ```
@@ -195,8 +193,9 @@ the exact target path you intend to delete.
 Before running create, update, delete, or bulk commands:
 
 1. Run the matching `--help` command and confirm required flags.
-2. Resolve the active account with `asc ads me view --output json`.
-3. Resolve org access with `asc ads acls list --output json`.
+2. Resolve account and org access with `asc ads acls list --output json`.
+3. Run a read-only resource check:
+   `asc ads campaigns list --org "123456" --limit 1 --output json`.
 4. Pass `--ads-profile` and `--org` explicitly when more than one account or org is possible.
 5. Store request bodies in reviewed JSON files; avoid shell-escaped inline JSON.
 6. Create paused or clearly named test resources when validating workflow shape.
