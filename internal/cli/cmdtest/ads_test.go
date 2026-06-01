@@ -167,6 +167,7 @@ func TestAdsReportsPresetBuildsScopedKeywordRequest(t *testing.T) {
 	t.Setenv("ASC_ADS_ACCESS_TOKEN", "ACCESS")
 	t.Setenv("ASC_ADS_ORG_ID", "")
 	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "missing.json"))
+	from, to := adsReportRecentRange(7)
 
 	installDefaultTransport(t, adsRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 		if req.Method != http.MethodPost || req.URL.Path != "/api/v5/reports/campaigns/12345/keywords" {
@@ -179,8 +180,8 @@ func TestAdsReportsPresetBuildsScopedKeywordRequest(t *testing.T) {
 		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 			t.Fatalf("decode body: %v", err)
 		}
-		if body["startTime"] != "2026-05-25" || body["endTime"] != "2026-05-31" {
-			t.Fatalf("date range = %#v..%#v, want last-days payload", body["startTime"], body["endTime"])
+		if body["startTime"] != from || body["endTime"] != to {
+			t.Fatalf("date range = %#v..%#v, want %s..%s", body["startTime"], body["endTime"], from, to)
 		}
 		return adsJSONResponse(200, `{"data":{"reportingDataResponse":{"row":[]}}}`), nil
 	}))
@@ -190,8 +191,8 @@ func TestAdsReportsPresetBuildsScopedKeywordRequest(t *testing.T) {
 		"ads", "reports", "preset",
 		"--level", "keywords",
 		"--campaign", "12345",
-		"--from", "2026-05-25",
-		"--to", "2026-05-31",
+		"--from", from,
+		"--to", to,
 		"--org", "987654",
 		"--output", "json",
 	}
@@ -216,6 +217,7 @@ func TestAdsReportsPresetBuildsAdLevelRequestWithSort(t *testing.T) {
 	t.Setenv("ASC_ADS_ACCESS_TOKEN", "ACCESS")
 	t.Setenv("ASC_ADS_ORG_ID", "123456")
 	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "missing.json"))
+	from, to := adsReportRecentRange(7)
 
 	installDefaultTransport(t, adsRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 		if req.Method != http.MethodPost || req.URL.Path != "/api/v5/reports/campaigns/12345/ads" {
@@ -243,8 +245,8 @@ func TestAdsReportsPresetBuildsAdLevelRequestWithSort(t *testing.T) {
 		"ads", "reports", "preset",
 		"--level", "ads",
 		"--campaign", "12345",
-		"--from", "2026-05-01",
-		"--to", "2026-05-31",
+		"--from", from,
+		"--to", to,
 		"--sort", "impressions:desc",
 		"--output", "json",
 	}
@@ -269,6 +271,10 @@ func TestAdsReportsPresetValidatesUsageBeforeNetwork(t *testing.T) {
 	t.Setenv("ASC_ADS_ACCESS_TOKEN", "ACCESS")
 	t.Setenv("ASC_ADS_ORG_ID", "123456")
 	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "missing.json"))
+	recentFrom, recentTo := adsReportRecentRange(7)
+	hourlyLongFrom, hourlyLongTo := adsReportRecentRange(8)
+	hourlyOldFrom, hourlyOldTo := adsReportRangeEnding(31, 25)
+	dailyLongFrom, dailyLongTo := adsReportRecentRange(91)
 	installDefaultTransport(t, adsRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 		t.Fatalf("unexpected network request: %s %s", req.Method, req.URL.String())
 		return nil, nil
@@ -286,67 +292,67 @@ func TestAdsReportsPresetValidatesUsageBeforeNetwork(t *testing.T) {
 		},
 		{
 			name:    "invalid level",
-			args:    []string{"ads", "reports", "preset", "--level", "unsupported", "--from", "2026-05-01", "--to", "2026-05-31", "--output", "json"},
+			args:    []string{"ads", "reports", "preset", "--level", "unsupported", "--from", recentFrom, "--to", recentTo, "--output", "json"},
 			wantErr: "--level must be one of:",
 		},
 		{
 			name:    "campaign required",
-			args:    []string{"ads", "reports", "preset", "--level", "keywords", "--from", "2026-05-01", "--to", "2026-05-31", "--output", "json"},
+			args:    []string{"ads", "reports", "preset", "--level", "keywords", "--from", recentFrom, "--to", recentTo, "--output", "json"},
 			wantErr: "--campaign is required for --level keywords",
 		},
 		{
 			name:    "campaign nonnegative",
-			args:    []string{"ads", "reports", "preset", "--level", "keywords", "--campaign", "-1", "--from", "2026-05-01", "--to", "2026-05-31", "--output", "json"},
+			args:    []string{"ads", "reports", "preset", "--level", "keywords", "--campaign", "-1", "--from", recentFrom, "--to", recentTo, "--output", "json"},
 			wantErr: "--campaign must be >= 0",
 		},
 		{
 			name:    "campaign unsupported for campaign level",
-			args:    []string{"ads", "reports", "preset", "--level", "campaigns", "--campaign", "12345", "--from", "2026-05-01", "--to", "2026-05-31", "--output", "json"},
+			args:    []string{"ads", "reports", "preset", "--level", "campaigns", "--campaign", "12345", "--from", recentFrom, "--to", recentTo, "--output", "json"},
 			wantErr: "--campaign is not supported for --level campaigns",
 		},
 		{
 			name:    "ad group unsupported for keyword level",
-			args:    []string{"ads", "reports", "preset", "--level", "keywords", "--campaign", "12345", "--ad-group", "67890", "--from", "2026-05-01", "--to", "2026-05-31", "--output", "json"},
+			args:    []string{"ads", "reports", "preset", "--level", "keywords", "--campaign", "12345", "--ad-group", "67890", "--from", recentFrom, "--to", recentTo, "--output", "json"},
 			wantErr: "--ad-group is not supported for --level keywords",
 		},
 		{
 			name:    "invalid sort direction",
-			args:    []string{"ads", "reports", "preset", "--level", "campaigns", "--from", "2026-05-01", "--to", "2026-05-31", "--sort", "impressions:sideways", "--output", "json"},
+			args:    []string{"ads", "reports", "preset", "--level", "campaigns", "--from", recentFrom, "--to", recentTo, "--sort", "impressions:sideways", "--output", "json"},
 			wantErr: "--sort direction must be asc or desc",
 		},
 		{
 			name:    "invalid granularity",
-			args:    []string{"ads", "reports", "preset", "--level", "campaigns", "--from", "2026-05-01", "--to", "2026-05-31", "--granularity", "YEARLY", "--output", "json"},
+			args:    []string{"ads", "reports", "preset", "--level", "campaigns", "--from", recentFrom, "--to", recentTo, "--granularity", "YEARLY", "--output", "json"},
 			wantErr: "--granularity must be one of: HOURLY, DAILY, WEEKLY, MONTHLY",
 		},
 		{
 			name:    "hourly unsupported for search terms",
-			args:    []string{"ads", "reports", "preset", "--level", "search-terms", "--campaign", "12345", "--from", "2026-05-26", "--to", "2026-06-01", "--granularity", "HOURLY", "--output", "json"},
+			args:    []string{"ads", "reports", "preset", "--level", "search-terms", "--campaign", "12345", "--from", recentFrom, "--to", recentTo, "--granularity", "HOURLY", "--output", "json"},
 			wantErr: "--granularity HOURLY is only supported",
 		},
 		{
 			name:    "hourly unsupported for ads",
-			args:    []string{"ads", "reports", "preset", "--level", "ads", "--campaign", "12345", "--from", "2026-05-26", "--to", "2026-06-01", "--granularity", "HOURLY", "--sort", "impressions:desc", "--output", "json"},
+			args:    []string{"ads", "reports", "preset", "--level", "ads", "--campaign", "12345", "--from", recentFrom, "--to", recentTo, "--granularity", "HOURLY", "--sort", "impressions:desc", "--output", "json"},
 			wantErr: "--granularity HOURLY is only supported",
 		},
 		{
 			name:    "hourly range too long",
-			args:    []string{"ads", "reports", "preset", "--level", "campaigns", "--from", "2026-05-25", "--to", "2026-06-01", "--granularity", "HOURLY", "--output", "json"},
+			args:    []string{"ads", "reports", "preset", "--level", "campaigns", "--from", hourlyLongFrom, "--to", hourlyLongTo, "--granularity", "HOURLY", "--output", "json"},
 			wantErr: "--granularity HOURLY supports a maximum 7-day date range",
 		},
 		{
 			name:    "hourly start too old",
-			args:    []string{"ads", "reports", "preset", "--level", "campaigns", "--from", "2026-05-01", "--to", "2026-05-07", "--granularity", "HOURLY", "--output", "json"},
+			args:    []string{"ads", "reports", "preset", "--level", "campaigns", "--from", hourlyOldFrom, "--to", hourlyOldTo, "--granularity", "HOURLY", "--output", "json"},
 			wantErr: "--granularity HOURLY start date must be within the last 30 days",
 		},
 		{
 			name:    "daily range too long",
-			args:    []string{"ads", "reports", "preset", "--level", "campaigns", "--from", "2026-01-01", "--to", "2026-05-01", "--granularity", "DAILY", "--output", "json"},
+			args:    []string{"ads", "reports", "preset", "--level", "campaigns", "--from", dailyLongFrom, "--to", dailyLongTo, "--granularity", "DAILY", "--output", "json"},
 			wantErr: "--granularity DAILY supports a maximum 90-day date range",
 		},
 		{
 			name:    "row totals unsupported for search terms",
-			args:    []string{"ads", "reports", "preset", "--level", "search-terms", "--campaign", "12345", "--from", "2026-05-01", "--to", "2026-05-31", "--return-row-totals", "--output", "json"},
+			args:    []string{"ads", "reports", "preset", "--level", "search-terms", "--campaign", "12345", "--from", recentFrom, "--to", recentTo, "--return-row-totals", "--output", "json"},
 			wantErr: "--return-row-totals cannot be used with search-term report levels",
 		},
 		{
@@ -356,7 +362,7 @@ func TestAdsReportsPresetValidatesUsageBeforeNetwork(t *testing.T) {
 		},
 		{
 			name:    "search terms require explicit ORTZ",
-			args:    []string{"ads", "reports", "preset", "--level", "search-terms", "--campaign", "12345", "--from", "2026-05-01", "--to", "2026-05-31", "--time-zone", "UTC", "--output", "json"},
+			args:    []string{"ads", "reports", "preset", "--level", "search-terms", "--campaign", "12345", "--from", recentFrom, "--to", recentTo, "--time-zone", "UTC", "--output", "json"},
 			wantErr: "--time-zone must be ORTZ for search-term report levels",
 		},
 		{
@@ -366,7 +372,7 @@ func TestAdsReportsPresetValidatesUsageBeforeNetwork(t *testing.T) {
 		},
 		{
 			name:    "ad level requires sort",
-			args:    []string{"ads", "reports", "preset", "--level", "ads", "--campaign", "12345", "--from", "2026-05-01", "--to", "2026-05-31", "--output", "json"},
+			args:    []string{"ads", "reports", "preset", "--level", "ads", "--campaign", "12345", "--from", recentFrom, "--to", recentTo, "--output", "json"},
 			wantErr: "--sort is required for --level ads",
 		},
 	}
@@ -404,6 +410,15 @@ func TestAdsImpressionShareReportsLimitValidation(t *testing.T) {
 	if !errors.Is(runErr, flag.ErrHelp) || !strings.Contains(stderr, "--limit must be between 1 and 50") {
 		t.Fatalf("run error = %v stderr = %q, want custom reports limit validation", runErr, stderr)
 	}
+}
+
+func adsReportRecentRange(days int) (string, string) {
+	return adsReportRangeEnding(days-1, 0)
+}
+
+func adsReportRangeEnding(startDaysAgo, endDaysAgo int) (string, string) {
+	now := time.Now().UTC()
+	return now.AddDate(0, 0, -startDaysAgo).Format("2006-01-02"), now.AddDate(0, 0, -endDaysAgo).Format("2006-01-02")
 }
 
 func TestAdsLimitZeroValidation(t *testing.T) {
