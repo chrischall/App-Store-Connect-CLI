@@ -90,7 +90,7 @@ func TestBuildReportPresetPayloadRejectsLastDaysWithORTZ(t *testing.T) {
 		1,
 		"ORTZ",
 	), time.Date(2026, 6, 1, 1, 0, 0, 0, time.UTC))
-	if err == nil || !strings.Contains(err.Error(), "--last-days requires --time-zone UTC") {
+	if err == nil || !strings.Contains(err.Error(), "--last-days is not supported for ORTZ reports; use --from and --to") {
 		t.Fatalf("error = %v, want last-days ORTZ validation", err)
 	}
 }

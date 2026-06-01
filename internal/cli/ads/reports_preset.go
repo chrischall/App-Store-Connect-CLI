@@ -343,7 +343,7 @@ func reportPresetDateRange(from, to string, lastDays int, now time.Time, reporti
 			return "", "", fmt.Errorf("--last-days cannot be combined with --from or --to")
 		}
 		if reportingTimeZone != "UTC" {
-			return "", "", fmt.Errorf("--last-days requires --time-zone UTC; use --from and --to for ORTZ")
+			return "", "", fmt.Errorf("--last-days is not supported for ORTZ reports; use --from and --to")
 		}
 		reportingNow := now.UTC()
 		end := reportingNow.Format("2006-01-02")

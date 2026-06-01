@@ -366,9 +366,9 @@ func TestAdsReportsPresetValidatesUsageBeforeNetwork(t *testing.T) {
 			wantErr: "--time-zone must be ORTZ for search-term report levels",
 		},
 		{
-			name:    "last days require UTC",
+			name:    "last days unsupported for ORTZ",
 			args:    []string{"ads", "reports", "preset", "--level", "campaigns", "--last-days", "1", "--time-zone", "ORTZ", "--output", "json"},
-			wantErr: "--last-days requires --time-zone UTC",
+			wantErr: "--last-days is not supported for ORTZ reports; use --from and --to",
 		},
 		{
 			name:    "ad level requires sort",
