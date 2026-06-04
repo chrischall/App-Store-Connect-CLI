@@ -1066,6 +1066,136 @@ func TestGetCredentialsWithSource_BackfillsLegacyPEMOnlyOnce(t *testing.T) {
 	}
 }
 
+func TestMigrateKeychainToConfigExportsMissingPrivateKeyPEM(t *testing.T) {
+	newKr, _ := withSeparateKeyrings(t)
+	configPath := os.Getenv("ASC_CONFIG_PATH")
+	if configPath == "" {
+		t.Fatal("expected ASC_CONFIG_PATH to be set")
+	}
+
+	sourceKeyPath := filepath.Join(t.TempDir(), "AuthKey-source.p8")
+	writeECDSAPEM(t, sourceKeyPath, 0o600, true)
+	privateKeyPEM, err := os.ReadFile(sourceKeyPath)
+	if err != nil {
+		t.Fatalf("os.ReadFile(%q) error: %v", sourceKeyPath, err)
+	}
+
+	missingKeyPath := filepath.Join(t.TempDir(), "missing", "AuthKey.p8")
+	payload := credentialPayload{
+		KeyID:          "KEY123",
+		IssuerID:       "ISS456",
+		PrivateKeyPath: missingKeyPath,
+		PrivateKeyPEM:  string(privateKeyPEM),
+	}
+	item, err := keyringItemForCredential("demo profile", payload)
+	if err != nil {
+		t.Fatalf("keyringItemForCredential() error: %v", err)
+	}
+	if err := newKr.Set(item); err != nil {
+		t.Fatalf("keyring Set() error: %v", err)
+	}
+
+	result, err := MigrateKeychainToConfig(MigrateKeychainToConfigOptions{
+		ConfigPath: configPath,
+	})
+	if err != nil {
+		t.Fatalf("MigrateKeychainToConfig() error: %v", err)
+	}
+	if result.ConfigPath != configPath {
+		t.Fatalf("ConfigPath = %q, want %q", result.ConfigPath, configPath)
+	}
+	if len(result.Migrated) != 1 {
+		t.Fatalf("expected one migrated credential, got %#v", result.Migrated)
+	}
+	if !result.Migrated[0].ExportedPrivateKey {
+		t.Fatalf("expected exported private key flag, got %#v", result.Migrated[0])
+	}
+
+	cfg, err := config.LoadAt(configPath)
+	if err != nil {
+		t.Fatalf("config.LoadAt() error: %v", err)
+	}
+	if cfg.DefaultKeyName != "demo profile" {
+		t.Fatalf("DefaultKeyName = %q, want demo profile", cfg.DefaultKeyName)
+	}
+	if len(cfg.Keys) != 1 {
+		t.Fatalf("expected one config credential, got %#v", cfg.Keys)
+	}
+	exportedPath := cfg.Keys[0].PrivateKeyPath
+	if exportedPath == "" || exportedPath == missingKeyPath {
+		t.Fatalf("expected migrated config to point at exported key, got %q", exportedPath)
+	}
+	exportedPEM, err := os.ReadFile(exportedPath)
+	if err != nil {
+		t.Fatalf("os.ReadFile(exported key) error: %v", err)
+	}
+	if string(exportedPEM) != string(privateKeyPEM) {
+		t.Fatal("exported private key PEM did not match keychain PEM")
+	}
+	info, err := os.Stat(exportedPath)
+	if err != nil {
+		t.Fatalf("os.Stat(exported key) error: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("expected exported key permissions 0600, got %#o", got)
+	}
+}
+
+func TestMigrateKeychainToConfigFailsWhenKeyMaterialIsMissing(t *testing.T) {
+	newKr, _ := withSeparateKeyrings(t)
+	configPath := os.Getenv("ASC_CONFIG_PATH")
+	if configPath == "" {
+		t.Fatal("expected ASC_CONFIG_PATH to be set")
+	}
+
+	missingKeyPath := filepath.Join(t.TempDir(), "missing", "AuthKey.p8")
+	storeCredentialInKeyring(t, newKr, "demo", "KEY123", "ISS456", missingKeyPath)
+
+	_, err := MigrateKeychainToConfig(MigrateKeychainToConfigOptions{
+		ConfigPath: configPath,
+	})
+	if err == nil {
+		t.Fatal("expected missing key material error")
+	}
+	if !strings.Contains(err.Error(), "private key file is missing") {
+		t.Fatalf("expected missing private key error, got %v", err)
+	}
+}
+
+func TestMigrateKeychainToConfigCanRemoveMigratedKeychainEntries(t *testing.T) {
+	newKr, _ := withSeparateKeyrings(t)
+	configPath := os.Getenv("ASC_CONFIG_PATH")
+	if configPath == "" {
+		t.Fatal("expected ASC_CONFIG_PATH to be set")
+	}
+
+	keyPath := filepath.Join(t.TempDir(), "AuthKey.p8")
+	writeECDSAPEM(t, keyPath, 0o600, true)
+	storeCredentialInKeyring(t, newKr, "demo", "KEY123", "ISS456", keyPath)
+
+	result, err := MigrateKeychainToConfig(MigrateKeychainToConfigOptions{
+		ConfigPath:     configPath,
+		RemoveKeychain: true,
+	})
+	if err != nil {
+		t.Fatalf("MigrateKeychainToConfig() error: %v", err)
+	}
+	if !result.RemovedFromKeychain {
+		t.Fatalf("expected result to report keychain removal, got %#v", result)
+	}
+	if _, err := newKr.Get(keyringKey("demo")); !errors.Is(err, keyring.ErrKeyNotFound) {
+		t.Fatalf("expected migrated keychain entry to be removed, got %v", err)
+	}
+
+	cfg, err := config.LoadAt(configPath)
+	if err != nil {
+		t.Fatalf("config.LoadAt() error: %v", err)
+	}
+	if len(cfg.Keys) != 1 || cfg.Keys[0].Name != "demo" {
+		t.Fatalf("expected migrated config credential, got %#v", cfg.Keys)
+	}
+}
+
 func TestRemoveAllCredentials(t *testing.T) {
 	withArrayKeyring(t)
 
