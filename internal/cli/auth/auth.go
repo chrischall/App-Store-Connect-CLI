@@ -636,8 +636,13 @@ func printMigrateToConfigResult(result authsvc.MigrateKeychainToConfigResult) {
 	}
 	if result.RemovedFromKeychain {
 		fmt.Println("\nRemoved migrated credentials from keychain.")
+	} else if len(result.Warnings) > 0 {
+		fmt.Println("\nKeychain cleanup incomplete; inspect warnings below.")
 	} else {
 		fmt.Println("\nKeychain entries were left unchanged. Set ASC_BYPASS_KEYCHAIN=1 to prefer config.json.")
+	}
+	for _, warning := range result.Warnings {
+		fmt.Printf("Warning: %s\n", warning)
 	}
 }
 

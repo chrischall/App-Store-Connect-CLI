@@ -1196,6 +1196,100 @@ func TestMigrateKeychainToConfigCanRemoveMigratedKeychainEntries(t *testing.T) {
 	}
 }
 
+func TestMigrateKeychainToConfigPreservesDestinationDefault(t *testing.T) {
+	newKr, _ := withSeparateKeyrings(t)
+	activeConfigPath := os.Getenv("ASC_CONFIG_PATH")
+	if activeConfigPath == "" {
+		t.Fatal("expected ASC_CONFIG_PATH to be set")
+	}
+	if err := config.SaveAt(activeConfigPath, &config.Config{DefaultKeyName: "alpha"}); err != nil {
+		t.Fatalf("config.SaveAt(active) error: %v", err)
+	}
+
+	keyPath := filepath.Join(t.TempDir(), "AuthKey.p8")
+	writeECDSAPEM(t, keyPath, 0o600, true)
+	storeCredentialInKeyring(t, newKr, "alpha", "KEY_ALPHA", "ISS_ALPHA", keyPath)
+	storeCredentialInKeyring(t, newKr, "beta", "KEY_BETA", "ISS_BETA", keyPath)
+
+	destinationPath := filepath.Join(t.TempDir(), "custom-config.json")
+	if err := config.SaveAt(destinationPath, &config.Config{DefaultKeyName: "beta"}); err != nil {
+		t.Fatalf("config.SaveAt(destination) error: %v", err)
+	}
+
+	result, err := MigrateKeychainToConfig(MigrateKeychainToConfigOptions{
+		ConfigPath: destinationPath,
+	})
+	if err != nil {
+		t.Fatalf("MigrateKeychainToConfig() error: %v", err)
+	}
+	if len(result.Migrated) != 2 {
+		t.Fatalf("expected two migrated credentials, got %#v", result.Migrated)
+	}
+
+	cfg, err := config.LoadAt(destinationPath)
+	if err != nil {
+		t.Fatalf("config.LoadAt(destination) error: %v", err)
+	}
+	if cfg.DefaultKeyName != "beta" {
+		t.Fatalf("DefaultKeyName = %q, want beta", cfg.DefaultKeyName)
+	}
+	if cfg.KeyID != "KEY_BETA" || cfg.IssuerID != "ISS_BETA" || cfg.PrivateKeyPath != keyPath {
+		t.Fatalf("expected top-level fields to align with destination default beta, got %+v", cfg)
+	}
+}
+
+func TestMigrateKeychainToConfigWarnsWhenKeychainRemovalFails(t *testing.T) {
+	t.Setenv("ASC_BYPASS_KEYCHAIN", "0")
+	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "config.json"))
+	previousKeyringOpener := keyringOpener
+	previousLegacyKeyringOpener := legacyKeyringOpener
+	inner := keyring.NewArrayKeyring([]keyring.Item{})
+	kr := &removeFailingKeyring{
+		inner: inner,
+		err:   errors.New("remove denied"),
+	}
+	keyringOpener = func() (keyring.Keyring, error) {
+		return kr, nil
+	}
+	legacyKeyringOpener = func() (keyring.Keyring, error) {
+		return nil, keyring.ErrNoAvailImpl
+	}
+	t.Cleanup(func() {
+		keyringOpener = previousKeyringOpener
+		legacyKeyringOpener = previousLegacyKeyringOpener
+	})
+
+	keyPath := filepath.Join(t.TempDir(), "AuthKey.p8")
+	writeECDSAPEM(t, keyPath, 0o600, true)
+	storeCredentialInKeyring(t, inner, "demo", "KEY123", "ISS456", keyPath)
+
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	result, err := MigrateKeychainToConfig(MigrateKeychainToConfigOptions{
+		ConfigPath:     configPath,
+		RemoveKeychain: true,
+	})
+	if err != nil {
+		t.Fatalf("MigrateKeychainToConfig() error: %v", err)
+	}
+	if result.RemovedFromKeychain {
+		t.Fatalf("expected RemovedFromKeychain=false when removal fails, got %#v", result)
+	}
+	if len(result.Warnings) == 0 || !strings.Contains(result.Warnings[0], "remove denied") {
+		t.Fatalf("expected removal warning, got %#v", result.Warnings)
+	}
+	if _, err := inner.Get(keyringKey("demo")); err != nil {
+		t.Fatalf("expected keychain entry to remain after removal failure, got %v", err)
+	}
+
+	cfg, err := config.LoadAt(configPath)
+	if err != nil {
+		t.Fatalf("config.LoadAt() error: %v", err)
+	}
+	if len(cfg.Keys) != 1 || cfg.Keys[0].Name != "demo" {
+		t.Fatalf("expected config migration to remain successful, got %#v", cfg.Keys)
+	}
+}
+
 func TestRemoveAllCredentials(t *testing.T) {
 	withArrayKeyring(t)
 
@@ -1717,6 +1811,19 @@ func (k *countingKeyring) Set(item keyring.Item) error {
 }
 func (k *countingKeyring) Remove(key string) error { return k.inner.Remove(key) }
 func (k *countingKeyring) Keys() ([]string, error) { return k.inner.Keys() }
+
+type removeFailingKeyring struct {
+	inner keyring.Keyring
+	err   error
+}
+
+func (k *removeFailingKeyring) Get(key string) (keyring.Item, error) { return k.inner.Get(key) }
+func (k *removeFailingKeyring) GetMetadata(key string) (keyring.Metadata, error) {
+	return k.inner.GetMetadata(key)
+}
+func (k *removeFailingKeyring) Set(item keyring.Item) error { return k.inner.Set(item) }
+func (k *removeFailingKeyring) Remove(string) error         { return k.err }
+func (k *removeFailingKeyring) Keys() ([]string, error)     { return k.inner.Keys() }
 
 func TestGetCredentialsWithSource_KeychainAccessDeniedReturnsSentinel(t *testing.T) {
 	t.Setenv("ASC_BYPASS_KEYCHAIN", "")

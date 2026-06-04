@@ -99,6 +99,7 @@ type MigrateKeychainToConfigResult struct {
 	PrivateKeyDir       string               `json:"privateKeyDir,omitempty"`
 	Migrated            []MigratedCredential `json:"migrated"`
 	RemovedFromKeychain bool                 `json:"removedFromKeychain"`
+	Warnings            []string             `json:"warnings,omitempty"`
 }
 
 type credentialPayload struct {
@@ -428,12 +429,14 @@ func MigrateKeychainToConfig(opts MigrateKeychainToConfigOptions) (MigrateKeycha
 	}
 
 	if opts.RemoveKeychain {
+		removedAll := true
 		for _, cred := range result.Migrated {
 			if err := removeMigratedKeychainCredential(cred.Name); err != nil {
-				return result, err
+				removedAll = false
+				result.Warnings = append(result.Warnings, fmt.Sprintf("failed to remove keychain credential %q: %v", cred.Name, err))
 			}
 		}
-		result.RemovedFromKeychain = true
+		result.RemovedFromKeychain = removedAll
 	}
 
 	return result, nil
@@ -571,7 +574,14 @@ func upsertConfigCredential(cfg *config.Config, cred config.Credential) {
 }
 
 func applyMigratedDefault(cfg *config.Config, sourceCreds []Credential, migratedCreds []config.Credential) {
-	defaultName := ""
+	destinationDefaultName := strings.TrimSpace(cfg.DefaultKeyName)
+	if destinationDefaultName != "" {
+		if alignDefaultCredentialFields(cfg, destinationDefaultName) {
+			return
+		}
+	}
+
+	defaultName := destinationDefaultName
 	for _, cred := range sourceCreds {
 		if cred.IsDefault {
 			defaultName = strings.TrimSpace(cred.Name)
@@ -582,12 +592,12 @@ func applyMigratedDefault(cfg *config.Config, sourceCreds []Credential, migrated
 		defaultName = migratedCreds[0].Name
 	}
 	if defaultName == "" {
-		defaultName = strings.TrimSpace(cfg.DefaultKeyName)
-	}
-	if defaultName == "" {
 		return
 	}
 	cfg.DefaultKeyName = defaultName
+	if alignDefaultCredentialFields(cfg, defaultName) {
+		return
+	}
 	for _, cred := range migratedCreds {
 		if cred.Name == defaultName {
 			cfg.KeyID = cred.KeyID
@@ -598,10 +608,21 @@ func applyMigratedDefault(cfg *config.Config, sourceCreds []Credential, migrated
 	}
 }
 
+func alignDefaultCredentialFields(cfg *config.Config, defaultName string) bool {
+	cred, found, complete := findConfigCredential(cfg, defaultName)
+	if !found || !complete {
+		return false
+	}
+	cfg.DefaultKeyName = strings.TrimSpace(cred.Name)
+	cfg.KeyID = cred.KeyID
+	cfg.IssuerID = cred.IssuerID
+	cfg.PrivateKeyPath = cred.PrivateKeyPath
+	return true
+}
+
 func removeMigratedKeychainCredential(name string) error {
 	if err := removeFromKeychain(name); err != nil &&
-		!errors.Is(err, keyring.ErrKeyNotFound) &&
-		!isKeyringUnavailable(err) {
+		!errors.Is(err, keyring.ErrKeyNotFound) {
 		return err
 	}
 	if err := removeFromLegacyKeychain(name); err != nil &&
