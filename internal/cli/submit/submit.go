@@ -39,7 +39,7 @@ Use:
 			if len(args) > 0 {
 				switch strings.TrimSpace(args[0]) {
 				case "create":
-					fmt.Fprintln(os.Stderr, "Error: `asc submit create` was removed. Use `asc publish appstore --submit` instead.")
+					fmt.Fprintln(os.Stderr, "Error: `asc submit create` was removed. Use `asc review submit` for already-uploaded builds, or `asc publish appstore --submit` for the full shipping path.")
 					return flag.ErrHelp
 				case "preflight":
 					fmt.Fprintln(os.Stderr, "Error: `asc submit preflight` was removed. Use `asc validate` instead.")
