@@ -1,13 +1,10 @@
 package submit
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"strings"
 
-	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
-	validatecli "github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/validate"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/validation"
 )
 
@@ -28,25 +25,6 @@ type preflightResult struct {
 	Checks    []checkResult `json:"checks"`
 	PassCount int           `json:"pass_count"`
 	FailCount int           `json:"fail_count"`
-}
-
-func defaultSubmitPreflightOutputFormat() string {
-	if shared.DefaultOutputFormat() == "json" {
-		return "json"
-	}
-	return "text"
-}
-
-func runSubmitPreflightCompatibility(ctx context.Context, appID, version, platform string) (*preflightResult, error) {
-	report, err := validatecli.BuildReadinessReport(ctx, validatecli.ReadinessOptions{
-		AppID:    appID,
-		Version:  version,
-		Platform: platform,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return preflightResultFromReport(appID, version, report), nil
 }
 
 func preflightResultFromReport(appID, version string, report validation.Report) *preflightResult {

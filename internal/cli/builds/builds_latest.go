@@ -82,10 +82,6 @@ func normalizeLatestBuildSelectionOptions(appID, version, platform, processingSt
 	return opts, nil
 }
 
-func resolveLatestBuild(ctx context.Context, client *asc.Client, opts latestBuildSelectionOptions) (*asc.BuildResponse, error) {
-	return shared.ResolveLatestBuild(ctx, client, opts, false)
-}
-
 func resolveNextBuildNumber(ctx context.Context, client *asc.Client, opts nextBuildNumberOptions) (*asc.BuildsNextBuildNumberResult, error) {
 	return shared.ResolveNextBuildNumber(ctx, client, opts)
 }

@@ -17,11 +17,7 @@ import (
 
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
-	validatecli "github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/validate"
-	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/validation"
 )
-
-var submitReadinessReportBuilder = validatecli.BuildReadinessReport
 
 func SubmitCommand() *ffcli.Command {
 	return &ffcli.Command{
@@ -43,10 +39,6 @@ Use:
 			return flag.ErrHelp
 		},
 	}
-}
-
-func runSubmitCreateLocalizationPreflight(ctx context.Context, client *asc.Client, appID, versionID, platform string, requestTimeout time.Duration) error {
-	return runSubmissionLocalizationPreflight(ctx, client, appID, versionID, platform, requestTimeout, "submit create", "asc review submit")
 }
 
 func runSubmissionLocalizationPreflight(
@@ -89,147 +81,6 @@ func runSubmissionLocalizationPreflight(
 	}
 	fmt.Fprintf(os.Stderr, "Fix these with `asc metadata push` or `asc apps info edit` before retrying `%s`.\n", normalizeSubmissionRetryCommand(retryCommand))
 	return submissionPreflightWrap(errorPrefix, errors.New("submit preflight failed"))
-}
-
-func runSubmitCreateReadinessPreflight(ctx context.Context, client *asc.Client, appID, versionID, platform, buildID string) error {
-	build, err := submitCreateReadinessBuild(ctx, client, buildID)
-	if err != nil {
-		return err
-	}
-
-	report, err := submitReadinessReportBuilder(ctx, validatecli.ReadinessOptions{
-		AppID:     appID,
-		VersionID: versionID,
-		Platform:  platform,
-		Build:     build,
-	})
-	if err != nil {
-		return fmt.Errorf("submit create: failed to run readiness preflight: %w", err)
-	}
-	printSubmitCreateReadinessWarnings(report.Checks)
-	if report.Summary.Blocking == 0 {
-		return nil
-	}
-
-	fmt.Fprintf(os.Stderr, "Submit preflight failed: %d blocking readiness issue(s) found:\n", report.Summary.Blocking)
-	for _, check := range report.Checks {
-		if check.Severity != validation.SeverityError {
-			continue
-		}
-		fmt.Fprintf(os.Stderr, "  - %s: %s\n", submitCreateReadinessCheckLabel(check), check.Message)
-	}
-	fmt.Fprintf(
-		os.Stderr,
-		"Run `asc validate --app %s --version-id %s --platform %s` for the full report before retrying submit create.\n",
-		appID,
-		versionID,
-		platform,
-	)
-	return fmt.Errorf("submit create: submit preflight failed")
-}
-
-func submitCreateReadinessBuild(ctx context.Context, client *asc.Client, buildID string) (*validation.Build, error) {
-	buildID = strings.TrimSpace(buildID)
-	if buildID == "" || client == nil {
-		return nil, nil
-	}
-
-	buildCtx, buildCancel := shared.ContextWithTimeout(ctx)
-	buildResp, err := client.GetBuild(buildCtx, buildID)
-	buildCancel()
-	if err != nil {
-		return nil, fmt.Errorf("submit create: failed to fetch build %q for preflight: %w", buildID, err)
-	}
-
-	attrs := buildResp.Data.Attributes
-	return &validation.Build{
-		ID:                      strings.TrimSpace(buildResp.Data.ID),
-		Version:                 attrs.Version,
-		ProcessingState:         attrs.ProcessingState,
-		Expired:                 attrs.Expired,
-		UsesNonExemptEncryption: attrs.UsesNonExemptEncryption,
-	}, nil
-}
-
-func printSubmitCreateReadinessWarnings(checks []validation.CheckResult) {
-	for _, check := range checks {
-		prefix, ok := submitCreateReadinessNoticePrefix(check)
-		if !ok {
-			continue
-		}
-		fmt.Fprintf(os.Stderr, "%s: %s: %s\n", prefix, submitCreateReadinessCheckLabel(check), check.Message)
-		if remediation := strings.TrimSpace(check.Remediation); remediation != "" {
-			fmt.Fprintf(os.Stderr, "Hint: %s\n", remediation)
-		}
-	}
-}
-
-func submitCreateReadinessNoticePrefix(check validation.CheckResult) (string, bool) {
-	switch check.Severity {
-	case validation.SeverityWarning:
-		switch check.ID {
-		case "pricing.schedule.unverified", "availability.unverified":
-			return "Warning", true
-		}
-	case validation.SeverityInfo:
-		if check.ID == "privacy.publish_state.unverified" {
-			return "Advisory", true
-		}
-	}
-
-	return "", false
-}
-
-func submitCreateReadinessCheckLabel(check validation.CheckResult) string {
-	label := "Readiness"
-
-	switch {
-	case strings.HasPrefix(check.ID, "review_details."):
-		label = "App Store review details"
-	case strings.HasPrefix(check.ID, "categories."):
-		label = "Primary category"
-	case strings.HasPrefix(check.ID, "build."):
-		label = "Attached build"
-	case strings.HasPrefix(check.ID, "pricing."):
-		label = "Pricing"
-	case strings.HasPrefix(check.ID, "availability."):
-		label = "Availability"
-	case strings.HasPrefix(check.ID, "privacy."):
-		label = "App Privacy"
-	case strings.HasPrefix(check.ID, "screenshots."):
-		label = "Screenshots"
-	case strings.HasPrefix(check.ID, "age_rating."):
-		label = "Age rating"
-	case strings.HasPrefix(check.ID, "legal."):
-		label = "Legal metadata"
-	case strings.HasPrefix(check.ID, "required_fields."):
-		label = "Required metadata"
-	default:
-		switch strings.TrimSpace(check.ResourceType) {
-		case "appStoreReviewDetail":
-			label = "App Store review details"
-		case "appInfo":
-			label = "App information"
-		case "build":
-			label = "Attached build"
-		case "appPrivacy":
-			label = "App Privacy"
-		case "appScreenshotSet", "appScreenshot":
-			label = "Screenshots"
-		}
-	}
-
-	var qualifiers []string
-	if locale := strings.TrimSpace(check.Locale); locale != "" {
-		qualifiers = append(qualifiers, locale)
-	}
-	if field := strings.TrimSpace(check.Field); field != "" {
-		qualifiers = append(qualifiers, field)
-	}
-	if len(qualifiers) == 0 {
-		return label
-	}
-	return fmt.Sprintf("%s (%s)", label, strings.Join(qualifiers, ", "))
 }
 
 // isAppUpdate returns true if the target platform has ever been released,
@@ -777,14 +628,6 @@ Examples:
 			return shared.PrintOutput(result, *output.Output, *output.Pretty)
 		},
 	}
-}
-
-// runSubmitCreateSubscriptionPreflight checks whether the app has subscriptions
-// that need attention before submission. This is advisory (warnings only) because
-// the submit flow cannot include subscriptions in the review submission — they
-// use a separate submission path.
-func runSubmitCreateSubscriptionPreflight(ctx context.Context, client *asc.Client, appID string, requestTimeout time.Duration) {
-	runSubmissionSubscriptionPreflight(ctx, client, appID, requestTimeout, "asc review submit")
 }
 
 func runSubmissionSubscriptionPreflight(ctx context.Context, client *asc.Client, appID string, requestTimeout time.Duration, retryCommand string) {
