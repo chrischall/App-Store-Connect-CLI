@@ -19,6 +19,8 @@ func captureAppsCreateOutput(t *testing.T, fn func()) string {
 	}
 	stderrReader, stderrWriter, err := os.Pipe()
 	if err != nil {
+		_ = stdoutReader.Close()
+		_ = stdoutWriter.Close()
 		t.Fatalf("stderr pipe error: %v", err)
 	}
 
@@ -28,10 +30,12 @@ func captureAppsCreateOutput(t *testing.T, fn func()) string {
 	stdoutCh := make(chan struct{}, 1)
 	stderrCh := make(chan string, 1)
 	go func() {
+		defer func() { _ = stdoutReader.Close() }()
 		_, _ = io.Copy(io.Discard, stdoutReader)
 		stdoutCh <- struct{}{}
 	}()
 	go func() {
+		defer func() { _ = stderrReader.Close() }()
 		var buf bytes.Buffer
 		_, _ = io.Copy(&buf, stderrReader)
 		stderrCh <- buf.String()
