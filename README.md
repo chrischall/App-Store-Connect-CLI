@@ -298,14 +298,15 @@ asc workflow run --dry-run testflight_beta VERSION:1.2.3
 
 ### Verified local Xcode -> TestFlight workflow
 
-See [docs/WORKFLOWS.md](docs/WORKFLOWS.md) for a copyable `.asc/workflow.json`
-and `ExportOptions.plist` that use `asc builds next-build-number`, `asc xcode archive`,
-`asc xcode export --timeout 10m`, and `asc publish testflight --group ... --wait`. Add
-`--submit --confirm` when distributing to an external TestFlight group that needs
-beta app review submission.
+See [docs/WORKFLOWS.md](docs/WORKFLOWS.md) for a copyable `.asc/deployment.json`,
+`.asc/workflow.json`, and `ExportOptions.plist` that use `asc builds next-build-number`,
+`asc xcode inject`, `asc xcode archive`, `asc xcode export --timeout 10m`, and
+`asc publish testflight --group ... --wait`. Add `--submit --confirm` when
+distributing to an external TestFlight group that needs beta app review submission.
 
 ```bash
 asc workflow validate
+asc xcode inject --manifest .asc/deployment.json --set version=1.2.3 --set build_number=42 --dry-run --output json
 asc workflow run --dry-run testflight_beta VERSION:1.2.3
 asc workflow run testflight_beta VERSION:1.2.3
 ```
