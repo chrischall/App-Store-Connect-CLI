@@ -274,6 +274,7 @@ help:
 	@echo "  build-all      Build release binaries for supported platforms"
 	@echo "  build-debug    Build with debug symbols"
 	@echo "  test           Run tests"
+	@echo "  test-parallel  Run tests with optional package parallelism (PARALLEL=<n>)"
 	@echo "  test-coverage  Run tests with coverage"
 	@echo "  test-integration  Run opt-in integration tests"
 	@echo "  lint           Lint the code"
