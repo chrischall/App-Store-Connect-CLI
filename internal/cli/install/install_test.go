@@ -41,7 +41,7 @@ func TestInstallSkillsRunsNpxSkillsAdd(t *testing.T) {
 	if gotName != "/bin/npx" {
 		t.Fatalf("expected npx path /bin/npx, got %q", gotName)
 	}
-	expected := []string{"--yes", "skills", "add", defaultSkillsPackage}
+	expected := []string{"--yes", "skills", "add", defaultSkillsPackage, "--global", "--yes"}
 	if !reflect.DeepEqual(gotArgs, expected) {
 		t.Fatalf("expected args %v, got %v", expected, gotArgs)
 	}

@@ -28,8 +28,8 @@ func InstallSkillsCommand() *ffcli.Command {
 	return &ffcli.Command{
 		Name:       "install-skills",
 		ShortUsage: "asc install-skills",
-		ShortHelp:  "Install the asc skill pack for App Store Connect workflows.",
-		LongHelp: `Install the asc skill pack for App Store Connect workflows.
+		ShortHelp:  "Install the asc skill pack globally for App Store Connect workflows.",
+		LongHelp: `Install the asc skill pack globally for App Store Connect workflows.
 
 Examples:
   asc install-skills`,
@@ -51,7 +51,7 @@ func installSkills(ctx context.Context) error {
 	}
 
 	// `npx add-skill` is deprecated upstream; use the new subcommand style.
-	return runCommand(ctx, path, "--yes", "skills", "add", defaultSkillsPackage)
+	return runCommand(ctx, path, "--yes", "skills", "add", defaultSkillsPackage, "--global", "--yes")
 }
 
 func defaultRunCommand(ctx context.Context, name string, args ...string) error {
