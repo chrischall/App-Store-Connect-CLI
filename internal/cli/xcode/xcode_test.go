@@ -178,6 +178,35 @@ func TestXcodeInjectDryRunDoesNotWriteFiles(t *testing.T) {
 	}
 }
 
+func TestXcodeInjectDryRunRejectsExistingOutputWithoutOverwrite(t *testing.T) {
+	dir := t.TempDir()
+	manifestPath := filepath.Join(dir, "deployment.json")
+	writeXcodeInjectTestManifest(t, manifestPath, `{
+		"outputs": [
+			{"type": "text", "path": "Generated.xcconfig", "contents": "NEW = yes\n"}
+		]
+	}`)
+	existingPath := filepath.Join(dir, "Generated.xcconfig")
+	if err := os.WriteFile(existingPath, []byte("OLD = yes\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() existing output error: %v", err)
+	}
+
+	_, err := runXcodeInject(xcodeInjectOptions{ManifestPath: manifestPath, DryRun: true})
+	if err == nil {
+		t.Fatal("expected dry-run existing output error")
+	}
+	if !strings.Contains(err.Error(), "already exists; use --overwrite") {
+		t.Fatalf("expected overwrite guidance, got %v", err)
+	}
+	data, err := os.ReadFile(existingPath)
+	if err != nil {
+		t.Fatalf("ReadFile() existing output error: %v", err)
+	}
+	if string(data) != "OLD = yes\n" {
+		t.Fatalf("expected existing output preserved, got %q", string(data))
+	}
+}
+
 func TestXcodeInjectExpandsNestedPlaceholders(t *testing.T) {
 	dir := t.TempDir()
 	manifestPath := filepath.Join(dir, "deployment.json")

@@ -354,6 +354,13 @@ func writeXcodeInjectBytes(path, outputType, source string, payload []byte, opts
 		Source: source,
 		Bytes:  int64(len(payload)),
 	}
+	if !opts.Overwrite {
+		if _, err := os.Lstat(path); err == nil {
+			return xcodeInjectFileResult{}, newXcodeInjectUsageError("output path %q already exists; use --overwrite", path)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return xcodeInjectFileResult{}, err
+		}
+	}
 	if opts.DryRun {
 		if outputType == "copy" {
 			result.Action = "would_copy"
@@ -361,13 +368,6 @@ func writeXcodeInjectBytes(path, outputType, source string, payload []byte, opts
 			result.Action = "would_write"
 		}
 		return result, nil
-	}
-	if !opts.Overwrite {
-		if _, err := os.Lstat(path); err == nil {
-			return xcodeInjectFileResult{}, newXcodeInjectUsageError("output path %q already exists; use --overwrite", path)
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return xcodeInjectFileResult{}, err
-		}
 	}
 	if _, err := shared.WriteFileNoSymlinkOverwrite(path, bytes.NewReader(payload), 0o644, ".asc-inject-*", ".asc-inject-backup-*"); err != nil {
 		return xcodeInjectFileResult{}, err
