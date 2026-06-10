@@ -254,7 +254,7 @@ func TestXcodeInjectDryRunOverwriteRejectsDirectoryDestination(t *testing.T) {
 	}
 }
 
-func TestXcodeInjectDryRunRejectsDuplicateDestinationsWithoutOverwrite(t *testing.T) {
+func TestXcodeInjectRejectsDuplicateDestinationsBeforeWriting(t *testing.T) {
 	dir := t.TempDir()
 	manifestPath := filepath.Join(dir, "deployment.json")
 	writeXcodeInjectTestManifest(t, manifestPath, `{
@@ -264,9 +264,31 @@ func TestXcodeInjectDryRunRejectsDuplicateDestinationsWithoutOverwrite(t *testin
 		]
 	}`)
 
-	_, err := runXcodeInject(xcodeInjectOptions{ManifestPath: manifestPath, DryRun: true})
+	_, err := runXcodeInject(xcodeInjectOptions{ManifestPath: manifestPath})
 	if err == nil {
-		t.Fatal("expected duplicate dry-run destination error")
+		t.Fatal("expected duplicate destination error")
+	}
+	if !strings.Contains(err.Error(), "duplicate output path") {
+		t.Fatalf("expected duplicate destination guidance, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "Generated.xcconfig")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected duplicate validation before writing, stat error: %v", err)
+	}
+}
+
+func TestXcodeInjectDryRunOverwriteRejectsDuplicateDestinations(t *testing.T) {
+	dir := t.TempDir()
+	manifestPath := filepath.Join(dir, "deployment.json")
+	writeXcodeInjectTestManifest(t, manifestPath, `{
+		"outputs": [
+			{"type": "text", "path": "Generated.xcconfig", "contents": "FIRST = yes\n"},
+			{"type": "text", "path": "Generated.xcconfig", "contents": "SECOND = yes\n"}
+		]
+	}`)
+
+	_, err := runXcodeInject(xcodeInjectOptions{ManifestPath: manifestPath, DryRun: true, Overwrite: true})
+	if err == nil {
+		t.Fatal("expected duplicate dry-run overwrite destination error")
 	}
 	if !strings.Contains(err.Error(), "duplicate output path") {
 		t.Fatalf("expected duplicate destination guidance, got %v", err)

@@ -180,28 +180,40 @@ func runXcodeInject(opts xcodeInjectOptions) (xcodeInjectResult, error) {
 	}
 
 	baseDir := filepath.Dir(opts.ManifestPath)
+	if err := validateXcodeInjectOutputDestinations(baseDir, manifest.Outputs); err != nil {
+		return xcodeInjectResult{}, err
+	}
+
 	result := xcodeInjectResult{
 		ManifestPath: opts.ManifestPath,
 		DryRun:       opts.DryRun,
 		Outputs:      make([]xcodeInjectFileResult, 0, len(manifest.Outputs)),
 	}
-	dryRunDestinations := map[string]struct{}{}
 
 	for i, output := range manifest.Outputs {
 		fileResult, err := renderXcodeInjectOutput(baseDir, values, output, opts)
 		if err != nil {
 			return xcodeInjectResult{}, fmt.Errorf("output %d: %w", i+1, err)
 		}
-		if opts.DryRun && !opts.Overwrite {
-			if _, exists := dryRunDestinations[fileResult.Path]; exists {
-				return xcodeInjectResult{}, fmt.Errorf("output %d: %w", i+1, newXcodeInjectUsageError("duplicate output path %q; use --overwrite", fileResult.Path))
-			}
-			dryRunDestinations[fileResult.Path] = struct{}{}
-		}
 		result.Outputs = append(result.Outputs, fileResult)
 	}
 
 	return result, nil
+}
+
+func validateXcodeInjectOutputDestinations(baseDir string, outputs []xcodeInjectManifestOutput) error {
+	seen := map[string]int{}
+	for i, output := range outputs {
+		targetPath := resolveXcodeInjectPath(baseDir, strings.TrimSpace(output.Path))
+		if targetPath == "" {
+			continue
+		}
+		if first, exists := seen[targetPath]; exists {
+			return newXcodeInjectUsageError("duplicate output path %q in outputs %d and %d", targetPath, first+1, i+1)
+		}
+		seen[targetPath] = i
+	}
+	return nil
 }
 
 func readXcodeInjectManifest(path string) (xcodeInjectManifest, error) {
