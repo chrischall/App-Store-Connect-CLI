@@ -336,6 +336,28 @@ func TestXcodeInjectDryRunOverwriteRejectsDuplicateDestinations(t *testing.T) {
 	}
 }
 
+func TestXcodeInjectRejectsNestedDestinationConflictsBeforeWriting(t *testing.T) {
+	dir := t.TempDir()
+	manifestPath := filepath.Join(dir, "deployment.json")
+	writeXcodeInjectTestManifest(t, manifestPath, `{
+		"outputs": [
+			{"type": "text", "path": "Generated", "contents": "FIRST = yes\n"},
+			{"type": "text", "path": "Generated/Info.plist", "contents": "SECOND = yes\n"}
+		]
+	}`)
+
+	_, err := runXcodeInject(xcodeInjectOptions{ManifestPath: manifestPath})
+	if err == nil {
+		t.Fatal("expected nested destination conflict error")
+	}
+	if !strings.Contains(err.Error(), "conflicts with nested output path") {
+		t.Fatalf("expected nested destination guidance, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "Generated")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected nested validation before writing, stat error: %v", err)
+	}
+}
+
 func TestXcodeInjectOverwriteRejectsSymlinkDestination(t *testing.T) {
 	dir := t.TempDir()
 	manifestPath := filepath.Join(dir, "deployment.json")

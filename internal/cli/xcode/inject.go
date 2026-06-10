@@ -219,6 +219,7 @@ func runXcodeInject(opts xcodeInjectOptions) (xcodeInjectResult, error) {
 
 func validateXcodeInjectOutputDestinations(baseDir string, outputs []xcodeInjectManifestOutput, overwrite bool) error {
 	seen := map[string]int{}
+	paths := make([]string, 0, len(outputs))
 	for i, output := range outputs {
 		targetPath := resolveXcodeInjectPath(baseDir, strings.TrimSpace(output.Path))
 		if targetPath == "" {
@@ -231,8 +232,25 @@ func validateXcodeInjectOutputDestinations(baseDir string, outputs []xcodeInject
 		if err := validateXcodeInjectDestination(targetPath, overwrite); err != nil {
 			return fmt.Errorf("output %d: %w", i+1, err)
 		}
+		for _, existingPath := range paths {
+			if xcodeInjectPathContains(existingPath, targetPath) {
+				return newXcodeInjectUsageError("output path %q conflicts with nested output path %q", existingPath, targetPath)
+			}
+			if xcodeInjectPathContains(targetPath, existingPath) {
+				return newXcodeInjectUsageError("output path %q conflicts with nested output path %q", targetPath, existingPath)
+			}
+		}
+		paths = append(paths, targetPath)
 	}
 	return nil
+}
+
+func xcodeInjectPathContains(parent, child string) bool {
+	rel, err := filepath.Rel(parent, child)
+	if err != nil || rel == "." || filepath.IsAbs(rel) {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
 }
 
 func readXcodeInjectManifest(path string) (xcodeInjectManifest, error) {
