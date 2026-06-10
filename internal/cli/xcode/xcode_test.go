@@ -336,6 +336,44 @@ func TestXcodeInjectDryRunOverwriteRejectsDuplicateDestinations(t *testing.T) {
 	}
 }
 
+func TestXcodeInjectRejectsCaseOnlyDuplicateDestinations(t *testing.T) {
+	dir := t.TempDir()
+	manifestPath := filepath.Join(dir, "deployment.json")
+	writeXcodeInjectTestManifest(t, manifestPath, `{
+		"outputs": [
+			{"type": "text", "path": "Generated/Info.plist", "contents": "FIRST = yes\n"},
+			{"type": "text", "path": "generated/info.plist", "contents": "SECOND = yes\n"}
+		]
+	}`)
+
+	_, err := runXcodeInject(xcodeInjectOptions{ManifestPath: manifestPath, DryRun: true})
+	if err == nil {
+		t.Fatal("expected case-only duplicate destination error")
+	}
+	if !strings.Contains(err.Error(), "duplicate output path") {
+		t.Fatalf("expected duplicate destination guidance, got %v", err)
+	}
+}
+
+func TestXcodeInjectRejectsCaseOnlyNestedDestinationConflicts(t *testing.T) {
+	dir := t.TempDir()
+	manifestPath := filepath.Join(dir, "deployment.json")
+	writeXcodeInjectTestManifest(t, manifestPath, `{
+		"outputs": [
+			{"type": "text", "path": "Generated", "contents": "FIRST = yes\n"},
+			{"type": "text", "path": "generated/Info.plist", "contents": "SECOND = yes\n"}
+		]
+	}`)
+
+	_, err := runXcodeInject(xcodeInjectOptions{ManifestPath: manifestPath, DryRun: true})
+	if err == nil {
+		t.Fatal("expected case-only nested destination conflict error")
+	}
+	if !strings.Contains(err.Error(), "conflicts with nested output path") {
+		t.Fatalf("expected nested destination guidance, got %v", err)
+	}
+}
+
 func TestXcodeInjectRejectsNestedDestinationConflictsBeforeWriting(t *testing.T) {
 	dir := t.TempDir()
 	manifestPath := filepath.Join(dir, "deployment.json")

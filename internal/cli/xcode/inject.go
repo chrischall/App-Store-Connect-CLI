@@ -220,30 +220,34 @@ func runXcodeInject(opts xcodeInjectOptions) (xcodeInjectResult, error) {
 func validateXcodeInjectOutputDestinations(baseDir string, outputs []xcodeInjectManifestOutput, overwrite bool) error {
 	seen := map[string]int{}
 	paths := make([]string, 0, len(outputs))
+	pathKeys := make([]string, 0, len(outputs))
 	for i, output := range outputs {
 		targetPath := resolveXcodeInjectPath(baseDir, strings.TrimSpace(output.Path))
 		if targetPath == "" {
 			continue
 		}
-		if first, exists := seen[targetPath]; exists {
+		targetKey := xcodeInjectPathConflictKey(targetPath)
+		if first, exists := seen[targetKey]; exists {
 			return newXcodeInjectUsageError("duplicate output path %q in outputs %d and %d", targetPath, first+1, i+1)
 		}
-		seen[targetPath] = i
+		seen[targetKey] = i
 		if err := validateXcodeInjectDestinationParents(targetPath); err != nil {
 			return fmt.Errorf("output %d: %w", i+1, err)
 		}
 		if err := validateXcodeInjectDestination(targetPath, overwrite); err != nil {
 			return fmt.Errorf("output %d: %w", i+1, err)
 		}
-		for _, existingPath := range paths {
-			if xcodeInjectPathContains(existingPath, targetPath) {
+		for index, existingPath := range paths {
+			existingKey := pathKeys[index]
+			if xcodeInjectPathContains(existingKey, targetKey) {
 				return newXcodeInjectUsageError("output path %q conflicts with nested output path %q", existingPath, targetPath)
 			}
-			if xcodeInjectPathContains(targetPath, existingPath) {
+			if xcodeInjectPathContains(targetKey, existingKey) {
 				return newXcodeInjectUsageError("output path %q conflicts with nested output path %q", targetPath, existingPath)
 			}
 		}
 		paths = append(paths, targetPath)
+		pathKeys = append(pathKeys, targetKey)
 	}
 	return nil
 }
@@ -270,6 +274,10 @@ func validateXcodeInjectDestinationParents(path string) error {
 		}
 		parent = next
 	}
+}
+
+func xcodeInjectPathConflictKey(path string) string {
+	return strings.ToLower(filepath.Clean(path))
 }
 
 func xcodeInjectPathContains(parent, child string) bool {
