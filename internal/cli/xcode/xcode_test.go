@@ -358,6 +358,54 @@ func TestXcodeInjectRejectsNestedDestinationConflictsBeforeWriting(t *testing.T)
 	}
 }
 
+func TestXcodeInjectRejectsFileParentBeforeWriting(t *testing.T) {
+	dir := t.TempDir()
+	manifestPath := filepath.Join(dir, "deployment.json")
+	writeXcodeInjectTestManifest(t, manifestPath, `{
+		"outputs": [
+			{"type": "text", "path": "First.xcconfig", "contents": "FIRST = yes\n"},
+			{"type": "text", "path": "Parent/Child.xcconfig", "contents": "SECOND = yes\n"}
+		]
+	}`)
+	parentPath := filepath.Join(dir, "Parent")
+	if err := os.WriteFile(parentPath, []byte("not a directory\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() parent error: %v", err)
+	}
+
+	_, err := runXcodeInject(xcodeInjectOptions{ManifestPath: manifestPath})
+	if err == nil {
+		t.Fatal("expected file parent validation error")
+	}
+	if !strings.Contains(err.Error(), "is not a directory") {
+		t.Fatalf("expected parent directory validation error, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "First.xcconfig")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected first output not to be written, stat error: %v", err)
+	}
+}
+
+func TestXcodeInjectDryRunRejectsFileParent(t *testing.T) {
+	dir := t.TempDir()
+	manifestPath := filepath.Join(dir, "deployment.json")
+	writeXcodeInjectTestManifest(t, manifestPath, `{
+		"outputs": [
+			{"type": "text", "path": "Parent/Child.xcconfig", "contents": "SECOND = yes\n"}
+		]
+	}`)
+	parentPath := filepath.Join(dir, "Parent")
+	if err := os.WriteFile(parentPath, []byte("not a directory\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() parent error: %v", err)
+	}
+
+	_, err := runXcodeInject(xcodeInjectOptions{ManifestPath: manifestPath, DryRun: true})
+	if err == nil {
+		t.Fatal("expected dry-run file parent validation error")
+	}
+	if !strings.Contains(err.Error(), "is not a directory") {
+		t.Fatalf("expected parent directory validation error, got %v", err)
+	}
+}
+
 func TestXcodeInjectOverwriteRejectsSymlinkDestination(t *testing.T) {
 	dir := t.TempDir()
 	manifestPath := filepath.Join(dir, "deployment.json")

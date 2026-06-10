@@ -229,6 +229,9 @@ func validateXcodeInjectOutputDestinations(baseDir string, outputs []xcodeInject
 			return newXcodeInjectUsageError("duplicate output path %q in outputs %d and %d", targetPath, first+1, i+1)
 		}
 		seen[targetPath] = i
+		if err := validateXcodeInjectDestinationParents(targetPath); err != nil {
+			return fmt.Errorf("output %d: %w", i+1, err)
+		}
 		if err := validateXcodeInjectDestination(targetPath, overwrite); err != nil {
 			return fmt.Errorf("output %d: %w", i+1, err)
 		}
@@ -243,6 +246,30 @@ func validateXcodeInjectOutputDestinations(baseDir string, outputs []xcodeInject
 		paths = append(paths, targetPath)
 	}
 	return nil
+}
+
+func validateXcodeInjectDestinationParents(path string) error {
+	parent := filepath.Dir(path)
+	for {
+		if parent == "." || parent == "" {
+			return nil
+		}
+		info, err := os.Lstat(parent)
+		if err == nil {
+			if !info.IsDir() {
+				return fmt.Errorf("output parent path %q is not a directory", parent)
+			}
+			return nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		next := filepath.Dir(parent)
+		if next == parent {
+			return nil
+		}
+		parent = next
+	}
 }
 
 func xcodeInjectPathContains(parent, child string) bool {
