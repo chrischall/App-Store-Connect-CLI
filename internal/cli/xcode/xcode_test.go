@@ -444,6 +444,63 @@ func TestXcodeInjectDryRunRejectsFileParent(t *testing.T) {
 	}
 }
 
+func TestXcodeInjectAllowsDirectorySymlinkParent(t *testing.T) {
+	dir := t.TempDir()
+	realDir := filepath.Join(dir, "SharedGenerated")
+	if err := os.Mkdir(realDir, 0o755); err != nil {
+		t.Fatalf("Mkdir() real parent error: %v", err)
+	}
+	if err := os.Symlink(realDir, filepath.Join(dir, "Generated")); err != nil {
+		t.Fatalf("Symlink() parent error: %v", err)
+	}
+	manifestPath := filepath.Join(dir, "deployment.json")
+	writeXcodeInjectTestManifest(t, manifestPath, `{
+		"outputs": [
+			{"type": "text", "path": "Generated/Info.plist", "contents": "FIRST = yes\n"}
+		]
+	}`)
+
+	result, err := runXcodeInject(xcodeInjectOptions{ManifestPath: manifestPath})
+	if err != nil {
+		t.Fatalf("runXcodeInject() error: %v", err)
+	}
+	if len(result.Outputs) != 1 {
+		t.Fatalf("expected 1 output, got %d", len(result.Outputs))
+	}
+	data, err := os.ReadFile(filepath.Join(realDir, "Info.plist"))
+	if err != nil {
+		t.Fatalf("ReadFile() generated output error: %v", err)
+	}
+	if string(data) != "FIRST = yes\n" {
+		t.Fatalf("unexpected generated output: %q", string(data))
+	}
+}
+
+func TestXcodeInjectRejectsFileSymlinkParent(t *testing.T) {
+	dir := t.TempDir()
+	realFile := filepath.Join(dir, "SharedGenerated")
+	if err := os.WriteFile(realFile, []byte("not a directory\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() real parent error: %v", err)
+	}
+	if err := os.Symlink(realFile, filepath.Join(dir, "Generated")); err != nil {
+		t.Fatalf("Symlink() parent error: %v", err)
+	}
+	manifestPath := filepath.Join(dir, "deployment.json")
+	writeXcodeInjectTestManifest(t, manifestPath, `{
+		"outputs": [
+			{"type": "text", "path": "Generated/Info.plist", "contents": "FIRST = yes\n"}
+		]
+	}`)
+
+	_, err := runXcodeInject(xcodeInjectOptions{ManifestPath: manifestPath, DryRun: true})
+	if err == nil {
+		t.Fatal("expected file symlink parent validation error")
+	}
+	if !strings.Contains(err.Error(), "is not a directory") {
+		t.Fatalf("expected parent directory validation error, got %v", err)
+	}
+}
+
 func TestXcodeInjectOverwriteRejectsSymlinkDestination(t *testing.T) {
 	dir := t.TempDir()
 	manifestPath := filepath.Join(dir, "deployment.json")

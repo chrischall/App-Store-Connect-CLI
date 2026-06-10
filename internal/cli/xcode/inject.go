@@ -258,7 +258,7 @@ func validateXcodeInjectDestinationParents(path string) error {
 		if parent == "." || parent == "" {
 			return nil
 		}
-		info, err := os.Lstat(parent)
+		info, err := os.Stat(parent)
 		if err == nil {
 			if !info.IsDir() {
 				return fmt.Errorf("output parent path %q is not a directory", parent)
