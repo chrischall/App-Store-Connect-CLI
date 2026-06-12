@@ -20,6 +20,7 @@ const (
 )
 
 var openAgreementURL = openURL
+var openURLCommand = exec.CommandContext
 
 // AlternativeDistributionAgreementsCommand returns the agreements command group.
 func AlternativeDistributionAgreementsCommand() *ffcli.Command {
@@ -109,5 +110,5 @@ func openURL(ctx context.Context, rawURL string) error {
 	}
 
 	// #nosec G204 -- command is selected from a fixed platform-specific allowlist.
-	return exec.CommandContext(ctx, command, args...).Start()
+	return openURLCommand(ctx, command, args...).Run()
 }

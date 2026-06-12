@@ -6,6 +6,7 @@ import (
 	"flag"
 	"io"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -80,6 +81,28 @@ func TestAlternativeDistributionAgreementsOpenCommandBrowserUsesAgreementsURL(t 
 
 	if openedURL != alternativeDistributionAgreementsURL {
 		t.Fatalf("opened URL = %q, want %q", openedURL, alternativeDistributionAgreementsURL)
+	}
+}
+
+func TestOpenURLReturnsOpenerExitFailure(t *testing.T) {
+	prevCommand := openURLCommand
+	openURLCommand = func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, os.Args[0], "-test.run=TestOpenURLHelperProcess", "--")
+	}
+	t.Cleanup(func() {
+		openURLCommand = prevCommand
+	})
+
+	if err := openURL(context.Background(), alternativeDistributionAgreementsURL); err == nil {
+		t.Fatal("expected opener exit failure")
+	}
+}
+
+func TestOpenURLHelperProcess(t *testing.T) {
+	for _, arg := range os.Args {
+		if arg == "--" {
+			os.Exit(1)
+		}
 	}
 }
 
