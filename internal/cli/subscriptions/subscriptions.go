@@ -1344,6 +1344,9 @@ Examples:
 				return shared.UsageError(err.Error())
 			}
 			if normalizedBillingMode == subscriptionBillingModeMonthlyCommitment {
+				if *availableInNew {
+					return shared.UsageError("--available-in-new-territories is not supported for MONTHLY plan availability")
+				}
 				territoryIDs, excluded := filterMonthlyCommitmentTerritories(territoryIDs)
 				printMonthlyCommitmentTerritoryWarning(excluded)
 				if len(territoryIDs) == 0 {
@@ -1361,20 +1364,34 @@ Examples:
 				return err
 			}
 
-			requestCtx, cancel := shared.ContextWithTimeout(ctx)
-			defer cancel()
-
 			if normalizedBillingMode == subscriptionBillingModeMonthlyCommitment {
-				availableInNewValue := *availableInNew
-				resp, err := client.CreateSubscriptionPlanAvailability(requestCtx, id, territoryIDs, asc.SubscriptionPlanAvailabilityAttributes{
-					AvailableInNewTerritories: &availableInNewValue,
-					PlanType:                  asc.SubscriptionPlanTypeMonthly,
-				})
+				listCtx, listCancel := shared.ContextWithTimeout(ctx)
+				existing, err := client.GetSubscriptionPlanAvailabilitiesForSubscription(listCtx, id)
+				listCancel()
+				if err != nil {
+					return fmt.Errorf("subscriptions availability edit: failed to fetch monthly-commitment plan availability: %w", err)
+				}
+
+				var resp *asc.SubscriptionPlanAvailabilityResponse
+				if monthlyPlan, ok := findMonthlySubscriptionPlanAvailability(existing); ok {
+					updateCtx, updateCancel := shared.ContextWithTimeout(ctx)
+					resp, err = client.UpdateSubscriptionPlanAvailability(updateCtx, monthlyPlan.ID, territoryIDs, nil)
+					updateCancel()
+				} else {
+					createCtx, createCancel := shared.ContextWithTimeout(ctx)
+					resp, err = client.CreateSubscriptionPlanAvailability(createCtx, id, territoryIDs, asc.SubscriptionPlanAvailabilityAttributes{
+						PlanType: asc.SubscriptionPlanTypeMonthly,
+					})
+					createCancel()
+				}
 				if err != nil {
 					return fmt.Errorf("subscriptions availability edit: failed to set monthly-commitment plan availability: %w", err)
 				}
 				return shared.PrintOutput(resp, *output.Output, *output.Pretty)
 			}
+
+			requestCtx, cancel := shared.ContextWithTimeout(ctx)
+			defer cancel()
 
 			attrs := asc.SubscriptionAvailabilityAttributes{
 				AvailableInNewTerritories: *availableInNew,
