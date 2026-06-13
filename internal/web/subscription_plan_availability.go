@@ -84,6 +84,73 @@ func (c *Client) ListSubscriptionPlanAvailabilities(ctx context.Context, subscri
 	return availabilities, nil
 }
 
+// CreateSubscriptionPlanAvailability creates a subscription billing-plan availability.
+func (c *Client) CreateSubscriptionPlanAvailability(ctx context.Context, subscriptionID, planType string, territoryIDs []string, availableInNewTerritories bool) (*SubscriptionPlanAvailability, error) {
+	subscriptionID = strings.TrimSpace(subscriptionID)
+	planType = strings.ToUpper(strings.TrimSpace(planType))
+	if subscriptionID == "" {
+		return nil, fmt.Errorf("subscription id is required")
+	}
+	if planType != "UPFRONT" && planType != "MONTHLY" {
+		return nil, fmt.Errorf(`plan type must be "UPFRONT" or "MONTHLY"`)
+	}
+
+	territories := make([]map[string]string, 0, len(territoryIDs))
+	seen := make(map[string]struct{}, len(territoryIDs))
+	for _, territoryID := range territoryIDs {
+		territoryID = strings.ToUpper(strings.TrimSpace(territoryID))
+		if territoryID == "" {
+			continue
+		}
+		if _, ok := seen[territoryID]; ok {
+			continue
+		}
+		seen[territoryID] = struct{}{}
+		territories = append(territories, map[string]string{
+			"type": "territories",
+			"id":   territoryID,
+		})
+	}
+	if len(territories) == 0 {
+		return nil, fmt.Errorf("at least one territory id is required")
+	}
+
+	attributes := map[string]any{
+		"planType": planType,
+	}
+	if planType == "UPFRONT" {
+		attributes["availableInNewTerritories"] = availableInNewTerritories
+	}
+	requestBody := map[string]any{
+		"data": map[string]any{
+			"type":       "subscriptionPlanAvailabilities",
+			"attributes": attributes,
+			"relationships": map[string]any{
+				"availableTerritories": map[string]any{"data": territories},
+				"subscription": map[string]any{
+					"data": map[string]string{
+						"type": "subscriptions",
+						"id":   subscriptionID,
+					},
+				},
+			},
+		},
+	}
+
+	responseBody, err := c.doRequest(ctx, http.MethodPost, "/subscriptionPlanAvailabilities", requestBody)
+	if err != nil {
+		return nil, err
+	}
+	var payload struct {
+		Data jsonAPIResource `json:"data"`
+	}
+	if err := json.Unmarshal(responseBody, &payload); err != nil {
+		return nil, fmt.Errorf("failed to parse subscription plan availability create response: %w", err)
+	}
+	availability := decodeSubscriptionPlanAvailabilityResource(payload.Data)
+	return &availability, nil
+}
+
 // RemoveSubscriptionPlanAvailabilityFromSale clears all available territories for a subscription plan availability.
 func (c *Client) RemoveSubscriptionPlanAvailabilityFromSale(ctx context.Context, planAvailabilityID string) (*SubscriptionPlanAvailability, error) {
 	planAvailabilityID = strings.TrimSpace(planAvailabilityID)

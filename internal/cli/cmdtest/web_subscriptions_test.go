@@ -241,6 +241,107 @@ func TestWebSubscriptionsAvailabilityRemoveFromSaleRunUsageErrors(t *testing.T) 
 	}
 }
 
+func TestWebSubscriptionsPricingMonthlyCommitmentBootstrapRunCreatesAvailabilityAndPrices(t *testing.T) {
+	restoreSession := webcmd.SetResolveWebSession(func(ctx context.Context, appleID, password, twoFactorCode string) (*webcore.AuthSession, string, error) {
+		requests := 0
+		return &webcore.AuthSession{
+			Client: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				requests++
+				switch requests {
+				case 1:
+					return webSubscriptionsJSONResponse(`{"data":[{"type":"subscriptionPlanAvailabilities","id":"plan-upfront","attributes":{"planType":"UPFRONT"},"relationships":{"availableTerritories":{"data":[{"type":"territories","id":"NOR"}]}}}]}`), nil
+				case 2:
+					if req.Method != http.MethodPost || req.URL.Path != "/iris/v1/subscriptionPlanAvailabilities" {
+						t.Fatalf("unexpected availability request: %s %s", req.Method, req.URL.Path)
+					}
+					return webSubscriptionsJSONResponse(`{"data":{"type":"subscriptionPlanAvailabilities","id":"plan-monthly","attributes":{"planType":"MONTHLY"},"relationships":{"availableTerritories":{"data":[{"type":"territories","id":"NOR"}]}}}}`), nil
+				case 3:
+					if req.Method != http.MethodPatch || req.URL.Path != "/iris/v1/subscriptions/sub-1" {
+						t.Fatalf("unexpected pricing request: %s %s", req.Method, req.URL.Path)
+					}
+					return webSubscriptionsJSONResponse(`{"data":{"type":"subscriptions","id":"sub-1"}}`), nil
+				default:
+					t.Fatalf("unexpected request %d: %s %s", requests, req.Method, req.URL.Path)
+					return nil, nil
+				}
+			})},
+		}, "cache", nil
+	})
+	t.Cleanup(restoreSession)
+
+	stdout, stderr := captureOutput(t, func() {
+		code := cmd.Run([]string{
+			"web", "subscriptions", "pricing", "monthly-commitment", "bootstrap",
+			"--subscription-id", "sub-1",
+			"--territory", "NOR",
+			"--upfront-price-point-id", "upfront-point",
+			"--monthly-price-point-id", "monthly-point",
+			"--confirm",
+			"--output", "json",
+		}, "1.0.0")
+		if code != cmd.ExitSuccess {
+			t.Fatalf("exit code = %d, want %d", code, cmd.ExitSuccess)
+		}
+	})
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
+	}
+	var payload struct {
+		PlanAvailabilityCreated bool `json:"planAvailabilityCreated"`
+		PricesCreated           bool `json:"pricesCreated"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error: %v; stdout=%q", err, stdout)
+	}
+	if !payload.PlanAvailabilityCreated || !payload.PricesCreated {
+		t.Fatalf("unexpected payload: %+v", payload)
+	}
+}
+
+func TestWebSubscriptionsPricingMonthlyCommitmentBootstrapRunUsageErrors(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{
+			name: "missing subscription id",
+			args: []string{
+				"web", "subscriptions", "pricing", "monthly-commitment", "bootstrap",
+			},
+			wantErr: "--subscription-id is required",
+		},
+		{
+			name: "missing confirm",
+			args: []string{
+				"web", "subscriptions", "pricing", "monthly-commitment", "bootstrap",
+				"--subscription-id", "sub-1",
+				"--territory", "NOR",
+				"--upfront-price-point-id", "upfront",
+				"--monthly-price-point-id", "monthly",
+			},
+			wantErr: "--confirm is required",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			stdout, stderr := captureOutput(t, func() {
+				code := cmd.Run(test.args, "1.0.0")
+				if code != cmd.ExitUsage {
+					t.Fatalf("exit code = %d, want %d", code, cmd.ExitUsage)
+				}
+			})
+			if stdout != "" {
+				t.Fatalf("expected empty stdout, got %q", stdout)
+			}
+			if !strings.Contains(stderr, test.wantErr) {
+				t.Fatalf("expected stderr to contain %q, got %q", test.wantErr, stderr)
+			}
+		})
+	}
+}
+
 func webSubscriptionsAvailabilityResponse(t *testing.T, req *http.Request, availabilityListCalls *int, patchCalls *int, postPatchRemoved ...bool) (*http.Response, error) {
 	t.Helper()
 
