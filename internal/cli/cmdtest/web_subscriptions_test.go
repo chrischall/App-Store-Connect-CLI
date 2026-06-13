@@ -301,6 +301,55 @@ func TestWebSubscriptionsPricingMonthlyCommitmentBootstrapRunCreatesAvailability
 	}
 }
 
+func TestWebSubscriptionsPricingMonthlyCommitmentBootstrapDryRunReportsPreviewWithoutCreation(t *testing.T) {
+	requests := 0
+	restoreSession := webcmd.SetResolveWebSession(func(ctx context.Context, appleID, password, twoFactorCode string) (*webcore.AuthSession, string, error) {
+		return &webcore.AuthSession{
+			Client: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				requests++
+				if req.Method != http.MethodGet || req.URL.Path != "/iris/v1/subscriptions/sub-1/planAvailabilities" {
+					t.Fatalf("unexpected dry-run request: %s %s", req.Method, req.URL.Path)
+				}
+				return webSubscriptionsJSONResponse(`{"data":[{"type":"subscriptionPlanAvailabilities","id":"plan-upfront","attributes":{"planType":"UPFRONT"},"relationships":{"availableTerritories":{"data":[{"type":"territories","id":"NOR"}]}}}]}`), nil
+			})},
+		}, "cache", nil
+	})
+	t.Cleanup(restoreSession)
+
+	stdout, stderr := captureOutput(t, func() {
+		code := cmd.Run([]string{
+			"web", "subscriptions", "pricing", "monthly-commitment", "bootstrap",
+			"--subscription-id", "sub-1",
+			"--territory", "NOR",
+			"--upfront-price-point-id", "upfront-point",
+			"--monthly-price-point-id", "monthly-point",
+			"--dry-run",
+			"--output", "json",
+		}, "1.0.0")
+		if code != cmd.ExitSuccess {
+			t.Fatalf("exit code = %d, want %d", code, cmd.ExitSuccess)
+		}
+	})
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr)
+	}
+	var payload struct {
+		PlanAvailabilityCreated     bool `json:"planAvailabilityCreated"`
+		PlanAvailabilityWouldCreate bool `json:"planAvailabilityWouldCreate"`
+		PricesCreated               bool `json:"pricesCreated"`
+		DryRun                      bool `json:"dryRun"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error: %v; stdout=%q", err, stdout)
+	}
+	if payload.PlanAvailabilityCreated || !payload.PlanAvailabilityWouldCreate || payload.PricesCreated || !payload.DryRun {
+		t.Fatalf("unexpected dry-run payload: %+v", payload)
+	}
+	if requests != 1 {
+		t.Fatalf("expected one read and no mutations, got %d requests", requests)
+	}
+}
+
 func TestWebSubscriptionsPricingMonthlyCommitmentBootstrapRunUsageErrors(t *testing.T) {
 	tests := []struct {
 		name    string

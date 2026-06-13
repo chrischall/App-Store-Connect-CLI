@@ -33,16 +33,17 @@ var (
 )
 
 type webSubscriptionMonthlyCommitmentBootstrapResult struct {
-	SubscriptionID       string `json:"subscriptionId"`
-	Territory            string `json:"territory"`
-	PlanAvailabilityID   string `json:"planAvailabilityId"`
-	PlanAvailabilityNew  bool   `json:"planAvailabilityCreated"`
-	UpfrontPricePointID  string `json:"upfrontPricePointId"`
-	MonthlyPricePointID  string `json:"monthlyPricePointId"`
-	PricesCreated        bool   `json:"pricesCreated"`
-	DryRun               bool   `json:"dryRun"`
-	StartDate            string `json:"startDate,omitempty"`
-	PreserveCurrentPrice bool   `json:"preserveCurrentPrice,omitempty"`
+	SubscriptionID              string `json:"subscriptionId"`
+	Territory                   string `json:"territory"`
+	PlanAvailabilityID          string `json:"planAvailabilityId"`
+	PlanAvailabilityNew         bool   `json:"planAvailabilityCreated"`
+	PlanAvailabilityWouldCreate bool   `json:"planAvailabilityWouldCreate,omitempty"`
+	UpfrontPricePointID         string `json:"upfrontPricePointId"`
+	MonthlyPricePointID         string `json:"monthlyPricePointId"`
+	PricesCreated               bool   `json:"pricesCreated"`
+	DryRun                      bool   `json:"dryRun"`
+	StartDate                   string `json:"startDate,omitempty"`
+	PreserveCurrentPrice        bool   `json:"preserveCurrentPrice,omitempty"`
 }
 
 // WebSubscriptionsPricingCommand returns the web subscription pricing command group.
@@ -199,9 +200,9 @@ resolution but does not mutate App Store Connect.
 			if *dryRun {
 				result := webSubscriptionMonthlyCommitmentBootstrapResult{
 					SubscriptionID: id, Territory: territoryID,
-					PlanAvailabilityID:  monthlyAvailability.ID,
-					PlanAvailabilityNew: !found,
-					UpfrontPricePointID: upfrontID, MonthlyPricePointID: monthlyID,
+					PlanAvailabilityID:          monthlyAvailability.ID,
+					PlanAvailabilityWouldCreate: !found,
+					UpfrontPricePointID:         upfrontID, MonthlyPricePointID: monthlyID,
 					DryRun: true, StartDate: scheduledDate,
 					PreserveCurrentPrice: *preserveCurrentPrice,
 				}
