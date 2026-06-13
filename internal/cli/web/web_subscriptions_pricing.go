@@ -105,7 +105,7 @@ func WebSubscriptionsPricingMonthlyCommitmentBootstrapCommand() *ffcli.Command {
 	upfrontPrice := fs.String("upfront-price", "", "UPFRONT customer price to resolve in --territory")
 	monthlyPrice := fs.String("monthly-price", "", "MONTHLY customer price to resolve in --territory")
 	startDate := fs.String("start-date", "", "Schedule both prices on YYYY-MM-DD")
-	preserveCurrentPrice := fs.Bool("preserve-current-price", false, "Preserve current pricing for existing subscribers")
+	preserveCurrentPrice := fs.Bool("preserve-current-price", false, "Preserve current pricing for existing subscribers; requires --start-date")
 	dryRun := fs.Bool("dry-run", false, "Resolve and print the plan without creating or changing resources")
 	confirm := fs.Bool("confirm", false, "Confirm creating monthly availability and paired prices")
 	authFlags := bindWebSessionFlags(fs)
@@ -120,9 +120,14 @@ func WebSubscriptionsPricingMonthlyCommitmentBootstrapCommand() *ffcli.Command {
 Create MONTHLY plan availability, then attach paired UPFRONT and MONTHLY prices
 using the same private inline subscription PATCH as App Store Connect.
 
+Prefer asc subscriptions pricing monthly-commitment enable for normal setup.
+Use this private command only when you specifically need App Store Connect's
+paired web pricing workflow or a paired scheduled price change.
+
 Prices may be supplied as exact customer prices or price point IDs. Use
---start-date for a scheduled paired price change. --dry-run performs all reads
-and price resolution but does not mutate App Store Connect.
+--start-date for a scheduled paired price change. --preserve-current-price
+applies only to scheduled changes. --dry-run performs all reads and price
+resolution but does not mutate App Store Connect.
 
 ` + webWarningText,
 		FlagSet:   fs,
@@ -143,10 +148,14 @@ and price resolution but does not mutate App Store Connect.
 				return shared.UsageError("--subscription-id is required")
 			case len(territoryID) != 3:
 				return shared.UsageError("--territory must be a three-letter territory ID")
+			case territoryID == "USA" || territoryID == "SGP":
+				return shared.UsageError("--territory cannot be USA or Singapore for monthly-commitment pricing")
 			case (upfrontID == "") == (upfrontAmount == ""):
 				return shared.UsageError("exactly one of --upfront-price or --upfront-price-point-id is required")
 			case (monthlyID == "") == (monthlyAmount == ""):
 				return shared.UsageError("exactly one of --monthly-price or --monthly-price-point-id is required")
+			case *preserveCurrentPrice && scheduledDate == "":
+				return shared.UsageError("--preserve-current-price requires --start-date")
 			case !*dryRun && !*confirm:
 				return shared.UsageError("--confirm is required")
 			}
@@ -310,7 +319,9 @@ func containsTerritory(territories []string, territory string) bool {
 }
 
 func availabilityExcludesTerritory(availability webcore.SubscriptionPlanAvailability, territory string) bool {
-	return availability.AvailableTerritoriesLoaded && !containsTerritory(availability.AvailableTerritories, territory)
+	return availability.AvailableTerritoriesLoaded &&
+		len(availability.AvailableTerritories) < webcore.SubscriptionPlanAvailabilityTerritoryLimit &&
+		!containsTerritory(availability.AvailableTerritories, territory)
 }
 
 func dereferencePlanAvailability(availability *webcore.SubscriptionPlanAvailability, err error) (webcore.SubscriptionPlanAvailability, error) {

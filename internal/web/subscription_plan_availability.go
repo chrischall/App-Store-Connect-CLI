@@ -9,6 +9,9 @@ import (
 	"strings"
 )
 
+// SubscriptionPlanAvailabilityTerritoryLimit is the maximum related territory count requested.
+const SubscriptionPlanAvailabilityTerritoryLimit = 200
+
 // SubscriptionPlanAvailability models the internal web API subscription plan availability resource.
 type SubscriptionPlanAvailability struct {
 	ID                         string   `json:"id"`
@@ -64,7 +67,7 @@ func (c *Client) ListSubscriptionPlanAvailabilities(ctx context.Context, subscri
 
 	query := url.Values{}
 	query.Set("include", "availableTerritories")
-	query.Set("limit[availableTerritories]", "200")
+	query.Set("limit[availableTerritories]", fmt.Sprintf("%d", SubscriptionPlanAvailabilityTerritoryLimit))
 	path := queryPath("/subscriptions/"+url.PathEscape(subscriptionID)+"/planAvailabilities", query)
 
 	responseBody, err := c.doRequest(ctx, http.MethodGet, path, nil)

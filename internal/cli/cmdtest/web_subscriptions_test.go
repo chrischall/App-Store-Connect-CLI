@@ -1,10 +1,13 @@
 package cmdtest
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -322,6 +325,43 @@ func TestWebSubscriptionsPricingMonthlyCommitmentBootstrapRunUsageErrors(t *test
 			},
 			wantErr: "--confirm is required",
 		},
+		{
+			name: "preserve requires start date",
+			args: []string{
+				"web", "subscriptions", "pricing", "monthly-commitment", "bootstrap",
+				"--subscription-id", "sub-1",
+				"--territory", "NOR",
+				"--upfront-price-point-id", "upfront",
+				"--monthly-price-point-id", "monthly",
+				"--preserve-current-price",
+				"--confirm",
+			},
+			wantErr: "--preserve-current-price requires --start-date",
+		},
+		{
+			name: "rejects United States",
+			args: []string{
+				"web", "subscriptions", "pricing", "monthly-commitment", "bootstrap",
+				"--subscription-id", "sub-1",
+				"--territory", "USA",
+				"--upfront-price-point-id", "upfront",
+				"--monthly-price-point-id", "monthly",
+				"--confirm",
+			},
+			wantErr: "--territory cannot be USA or Singapore for monthly-commitment pricing",
+		},
+		{
+			name: "rejects Singapore",
+			args: []string{
+				"web", "subscriptions", "pricing", "monthly-commitment", "bootstrap",
+				"--subscription-id", "sub-1",
+				"--territory", "SGP",
+				"--upfront-price-point-id", "upfront",
+				"--monthly-price-point-id", "monthly",
+				"--confirm",
+			},
+			wantErr: "--territory cannot be USA or Singapore for monthly-commitment pricing",
+		},
 	}
 
 	for _, test := range tests {
@@ -337,6 +377,67 @@ func TestWebSubscriptionsPricingMonthlyCommitmentBootstrapRunUsageErrors(t *test
 			}
 			if !strings.Contains(stderr, test.wantErr) {
 				t.Fatalf("expected stderr to contain %q, got %q", test.wantErr, stderr)
+			}
+		})
+	}
+}
+
+func TestWebSubscriptionsPricingMonthlyCommitmentBootstrapUsageExitCodes(t *testing.T) {
+	binaryPath := buildASCBlackBoxBinary(t)
+
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{
+			name: "preserve requires start date",
+			args: []string{
+				"web", "subscriptions", "pricing", "monthly-commitment", "bootstrap",
+				"--subscription-id", "sub-1",
+				"--territory", "NOR",
+				"--upfront-price-point-id", "upfront",
+				"--monthly-price-point-id", "monthly",
+				"--preserve-current-price",
+				"--confirm",
+			},
+			wantErr: "--preserve-current-price requires --start-date",
+		},
+		{
+			name: "rejects excluded territory",
+			args: []string{
+				"web", "subscriptions", "pricing", "monthly-commitment", "bootstrap",
+				"--subscription-id", "sub-1",
+				"--territory", "USA",
+				"--upfront-price-point-id", "upfront",
+				"--monthly-price-point-id", "monthly",
+				"--confirm",
+			},
+			wantErr: "--territory cannot be USA or Singapore for monthly-commitment pricing",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cmd := exec.Command(binaryPath, test.args...)
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+
+			err := cmd.Run()
+			var exitErr *exec.ExitError
+			if !errors.As(err, &exitErr) {
+				t.Fatalf("expected process exit error, got %v", err)
+			}
+			if exitErr.ExitCode() != 2 {
+				t.Fatalf("expected exit code 2, got %d", exitErr.ExitCode())
+			}
+			if stdout.String() != "" {
+				t.Fatalf("expected empty stdout, got %q", stdout.String())
+			}
+			if !strings.Contains(stderr.String(), test.wantErr) {
+				t.Fatalf("expected stderr to contain %q, got %q", test.wantErr, stderr.String())
 			}
 		})
 	}
