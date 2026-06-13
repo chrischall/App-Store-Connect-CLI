@@ -184,6 +184,9 @@ and price resolution but does not mutate App Store Connect.
 			}
 			monthlyAvailability, found := findPlanAvailabilityByType(availabilities, "MONTHLY")
 			created := false
+			if found && availabilityExcludesTerritory(monthlyAvailability, territoryID) {
+				return fmt.Errorf("MONTHLY plan availability %q exists but does not include %s; update its territories before bootstrapping prices", monthlyAvailability.ID, territoryID)
+			}
 			if *dryRun {
 				result := webSubscriptionMonthlyCommitmentBootstrapResult{
 					SubscriptionID: id, Territory: territoryID,
@@ -201,8 +204,6 @@ and price resolution but does not mutate App Store Connect.
 					return withWebAuthHint(err, "web subscriptions pricing monthly-commitment bootstrap")
 				}
 				created = true
-			} else if availabilityExcludesTerritory(monthlyAvailability, territoryID) {
-				return fmt.Errorf("MONTHLY plan availability %q exists but does not include %s; update its territories before bootstrapping prices", monthlyAvailability.ID, territoryID)
 			}
 
 			var prices *webcore.SubscriptionPlanPricesResult
