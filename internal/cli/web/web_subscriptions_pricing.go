@@ -201,7 +201,7 @@ and price resolution but does not mutate App Store Connect.
 					return withWebAuthHint(err, "web subscriptions pricing monthly-commitment bootstrap")
 				}
 				created = true
-			} else if !containsTerritory(monthlyAvailability.AvailableTerritories, territoryID) {
+			} else if availabilityExcludesTerritory(monthlyAvailability, territoryID) {
 				return fmt.Errorf("MONTHLY plan availability %q exists but does not include %s; update its territories before bootstrapping prices", monthlyAvailability.ID, territoryID)
 			}
 
@@ -306,6 +306,10 @@ func containsTerritory(territories []string, territory string) bool {
 		}
 	}
 	return false
+}
+
+func availabilityExcludesTerritory(availability webcore.SubscriptionPlanAvailability, territory string) bool {
+	return availability.AvailableTerritoriesLoaded && !containsTerritory(availability.AvailableTerritories, territory)
 }
 
 func dereferencePlanAvailability(availability *webcore.SubscriptionPlanAvailability, err error) (webcore.SubscriptionPlanAvailability, error) {
