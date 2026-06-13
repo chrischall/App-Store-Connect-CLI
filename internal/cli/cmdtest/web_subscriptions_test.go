@@ -440,6 +440,24 @@ func TestWebSubscriptionsPricingMonthlyCommitmentBootstrapUsageExitCodes(t *test
 		wantErr string
 	}{
 		{
+			name: "missing subscription id",
+			args: []string{
+				"web", "subscriptions", "pricing", "monthly-commitment", "bootstrap",
+			},
+			wantErr: "--subscription-id is required",
+		},
+		{
+			name: "missing confirm",
+			args: []string{
+				"web", "subscriptions", "pricing", "monthly-commitment", "bootstrap",
+				"--subscription-id", "sub-1",
+				"--territory", "NOR",
+				"--upfront-price-point-id", "upfront",
+				"--monthly-price-point-id", "monthly",
+			},
+			wantErr: "--confirm is required",
+		},
+		{
 			name: "preserve requires start date",
 			args: []string{
 				"web", "subscriptions", "pricing", "monthly-commitment", "bootstrap",
@@ -458,6 +476,18 @@ func TestWebSubscriptionsPricingMonthlyCommitmentBootstrapUsageExitCodes(t *test
 				"web", "subscriptions", "pricing", "monthly-commitment", "bootstrap",
 				"--subscription-id", "sub-1",
 				"--territory", "USA",
+				"--upfront-price-point-id", "upfront",
+				"--monthly-price-point-id", "monthly",
+				"--confirm",
+			},
+			wantErr: "--territory cannot be USA or Singapore for monthly-commitment pricing",
+		},
+		{
+			name: "rejects Singapore",
+			args: []string{
+				"web", "subscriptions", "pricing", "monthly-commitment", "bootstrap",
+				"--subscription-id", "sub-1",
+				"--territory", "SGP",
 				"--upfront-price-point-id", "upfront",
 				"--monthly-price-point-id", "monthly",
 				"--confirm",
