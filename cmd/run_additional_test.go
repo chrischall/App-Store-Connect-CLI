@@ -91,80 +91,30 @@ func TestRun_UnknownCommandReturnsUsage(t *testing.T) {
 	}
 }
 
-func TestRun_AlternativeDistributionAgreementsOpenInvalidAgreementReturnsUsage(t *testing.T) {
-	resetReportFlags(t)
-
-	_, stderr := captureCommandOutput(t, func() {
-		code := Run([]string{
-			"alternative-distribution", "agreements", "open",
-			"--agreement", "paid-apps",
-		}, "1.0.0")
-		if code != ExitUsage {
-			t.Fatalf("Run() exit code = %d, want %d", code, ExitUsage)
-		}
-	})
-
-	if !strings.Contains(stderr, `--agreement must be "eu-addendum"`) {
-		t.Fatalf("expected agreement validation in stderr, got %q", stderr)
-	}
-}
-
-func TestRun_AlternativeDistributionAgreementsOpenExplicitAgreementReturnsSuccess(t *testing.T) {
-	resetReportFlags(t)
-
-	stdout, stderr := captureCommandOutput(t, func() {
-		code := Run([]string{
-			"alternative-distribution", "agreements", "open",
-			"--agreement", "eu-addendum",
-		}, "1.0.0")
-		if code != ExitSuccess {
-			t.Fatalf("Run() exit code = %d, want %d", code, ExitSuccess)
-		}
-	})
-
-	if stderr != "" {
-		t.Fatalf("expected empty stderr, got %q", stderr)
-	}
-	if !strings.Contains(stdout, "https://appstoreconnect.apple.com/agreements/#/") {
-		t.Fatalf("expected agreements URL in stdout, got %q", stdout)
-	}
-}
-
-func TestRun_AlternativeDistributionAgreementsOpenInvalidBrowserValueReturnsUsage(t *testing.T) {
+func TestRun_AlternativeDistributionHelpIncludesEUAddendumAgentGuidance(t *testing.T) {
 	resetReportFlags(t)
 
 	stdout, stderr, exitCode := runHelpSubprocess(
 		t,
 		t.TempDir(),
-		"alternative-distribution", "agreements", "open",
-		"--browser=maybe",
+		"alternative-distribution", "--help",
 	)
 
-	if exitCode != ExitUsage {
-		t.Fatalf("exit code = %d, want %d", exitCode, ExitUsage)
+	if exitCode != ExitSuccess {
+		t.Fatalf("help exit code = %d, want %d; stdout=%q stderr=%q", exitCode, ExitSuccess, stdout, stderr)
 	}
-	if stdout != "" {
-		t.Fatalf("expected empty stdout, got %q", stdout)
-	}
-	if !strings.Contains(stderr, "invalid boolean value") || !strings.Contains(stderr, "browser") {
-		t.Fatalf("expected boolean parse error for --browser, got %q", stderr)
-	}
-}
-
-func TestRun_AlternativeDistributionAgreementsOpenUnexpectedArgumentReturnsUsage(t *testing.T) {
-	resetReportFlags(t)
-
-	_, stderr := captureCommandOutput(t, func() {
-		code := Run([]string{
-			"alternative-distribution", "agreements", "open", "typo",
-		}, "1.0.0")
-		if code != ExitUsage {
-			t.Fatalf("Run() exit code = %d, want %d", code, ExitUsage)
+	combined := stdout + stderr
+	for _, expected := range []string{
+		"Agent guidance:",
+		"Alternative Distribution Addendum for EU Apps",
+		"https://appstoreconnect.apple.com/agreements/#/",
+	} {
+		if !strings.Contains(combined, expected) {
+			t.Fatalf("expected help output to contain %q, got stdout=%q stderr=%q", expected, stdout, stderr)
 		}
-	})
-
-	if !strings.Contains(stderr, "unexpected argument(s): typo") {
-		t.Fatalf("expected unexpected argument error in stderr, got %q", stderr)
+	}
+	if strings.Contains(combined, "\n  agreements  ") {
+		t.Fatalf("did not expect agreements subcommand in help, got stdout=%q stderr=%q", stdout, stderr)
 	}
 }
 
