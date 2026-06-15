@@ -40,12 +40,29 @@ func TestLegacyOfferCodesCreateFreeTrialAcceptsTerritoryPrice(t *testing.T) {
 			t.Fatalf("decode request body: %v\nbody=%s", err, string(rawBody))
 		}
 
-		included := payload["included"].([]any)
+		included, ok := payload["included"].([]any)
+		if !ok {
+			t.Fatalf("expected included array, got %T", payload["included"])
+		}
 		if len(included) != 1 {
 			t.Fatalf("expected one included price, got %d", len(included))
 		}
-		relationships := included[0].(map[string]any)["relationships"].(map[string]any)
-		territory := relationships["territory"].(map[string]any)["data"].(map[string]any)
+		includedPrice, ok := included[0].(map[string]any)
+		if !ok {
+			t.Fatalf("expected included price object, got %T", included[0])
+		}
+		relationships, ok := includedPrice["relationships"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected relationships object, got %T", includedPrice["relationships"])
+		}
+		territoryRelationship, ok := relationships["territory"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected territory relationship object, got %T", relationships["territory"])
+		}
+		territory, ok := territoryRelationship["data"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected territory data object, got %T", territoryRelationship["data"])
+		}
 		if territory["id"] != "USA" {
 			t.Fatalf("expected normalized territory USA, got %#v", territory["id"])
 		}
