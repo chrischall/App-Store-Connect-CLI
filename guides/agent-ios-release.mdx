@@ -86,6 +86,7 @@ asc release stage \
   --app "$ASC_APP_ID" \
   --version "$VERSION" \
   --build "$ASC_BUILD_ID" \
+  --platform IOS \
   --copy-metadata-from "1.2.2" \
   --dry-run \
   --output table
@@ -104,6 +105,7 @@ asc release stage \
   --app "$ASC_APP_ID" \
   --version "$VERSION" \
   --build "$ASC_BUILD_ID" \
+  --platform IOS \
   --copy-metadata-from "1.2.2" \
   --confirm \
   --output table
@@ -118,6 +120,7 @@ asc publish appstore \
   --app "$ASC_APP_ID" \
   --ipa "./build/ios/ipa/MyApp.ipa" \
   --version "$VERSION" \
+  --platform IOS \
   --wait \
   --dry-run \
   --output table
@@ -131,6 +134,7 @@ asc publish appstore \
   --app "$ASC_APP_ID" \
   --ipa "./build/ios/ipa/MyApp.ipa" \
   --version "$VERSION" \
+  --platform IOS \
   --wait \
   --output json
 ```
@@ -221,6 +225,7 @@ asc review submit \
   --app "$ASC_APP_ID" \
   --version "$VERSION" \
   --build "$ASC_BUILD_ID" \
+  --platform IOS \
   --dry-run \
   --output table
 ```
@@ -235,6 +240,7 @@ Re-read App Store Connect and include the attached build and submission:
 ```bash  theme={null}
 asc status \
   --app "$ASC_APP_ID" \
+  --platform IOS \
   --include builds,appstore,submission,review \
   --output json
 
