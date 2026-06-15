@@ -21,11 +21,19 @@ state before reporting success.
 
 ## 1. Validate authentication and resolve the target
 
-Validate the stored credentials against App Store Connect:
+Select the intended credential source before making a network request. When
+using a named profile:
 
 ```bash  theme={null}
-asc auth status --validate
+export ASC_PROFILE="release"
+asc auth status --output table
 ```
+
+If `ASC_PROFILE` is unset, confirm that the status shows the intended default
+profile or environment credential. Do not use `asc auth status --validate` as
+the release gate because it validates every stored credential. The filtered
+`asc apps list` call below is the scoped network validation for the selected
+credential and must succeed.
 
 Resolve the app and release version:
 
