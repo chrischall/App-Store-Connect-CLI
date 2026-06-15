@@ -217,7 +217,8 @@ Examples:
 			}
 			priceEntries, err := parseOfferCodePrices(pricesValue, offerModeValue)
 			if err != nil {
-				return fmt.Errorf("offer-codes create: %w", err)
+				fmt.Fprintln(os.Stderr, "Error:", err.Error())
+				return flag.ErrHelp
 			}
 			if len(priceEntries) == 0 {
 				fmt.Fprintln(os.Stderr, "Error: --prices is required")
