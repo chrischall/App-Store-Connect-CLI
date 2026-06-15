@@ -46,16 +46,20 @@ For a build that is already in App Store Connect, resolve a valid processed
 build and record its ID:
 
 ```bash  theme={null}
+export BUILD_NUMBER="42"
+
 asc builds info \
   --app "$ASC_APP_ID" \
-  --latest \
+  --build-number "$BUILD_NUMBER" \
   --version "$VERSION" \
   --platform IOS \
-  --processing-state VALID \
   --output json
 
 export ASC_BUILD_ID="BUILD_ID"
 ```
+
+Continue only when the response is for the expected build number and its
+processing state is `VALID`.
 
 Skip the build lookup when uploading a local IPA; resolve the build ID after
 upload and processing. Do not create a duplicate version. The staging and
@@ -108,21 +112,30 @@ asc publish appstore \
   --output table
 ```
 
-After checking the plan, repeat the command without `--dry-run`. Do not add
-`--submit`; strict validation must run against the build after it is attached.
-Record the build ID from the result, or resolve it after processing:
+After checking the plan, run the preparation command and request structured
+output:
 
 ```bash  theme={null}
-asc builds info \
+asc publish appstore \
   --app "$ASC_APP_ID" \
-  --latest \
+  --ipa "./build/ios/ipa/MyApp.ipa" \
   --version "$VERSION" \
-  --platform IOS \
-  --processing-state VALID \
+  --wait \
   --output json
-
-export ASC_BUILD_ID="BUILD_ID"
 ```
+
+Do not add `--submit`; strict validation must run against the build after it is
+attached. Set `ASC_BUILD_ID` to the exact `buildId` returned by this command and
+retain its `buildNumber`:
+
+```bash  theme={null}
+export ASC_BUILD_ID="BUILD_ID_FROM_PUBLISH_RESULT"
+export BUILD_NUMBER="BUILD_NUMBER_FROM_PUBLISH_RESULT"
+```
+
+Never re-resolve an uploaded build with `--latest`. If the result must be
+re-read, query the known build number and verify that the response has the same
+build ID and a `VALID` processing state.
 
 If the version is already prepared and has the intended build attached, skip
 preparation and continue to the readiness gate.
