@@ -286,7 +286,10 @@ func TestBuildsNextBuildNumberSkipsNonPositiveBuildUploadNumber(t *testing.T) {
 				t.Fatalf("expected filter[cfBundleShortVersionString]=1.2.3, got %q", query.Get("filter[cfBundleShortVersionString]"))
 			}
 			return jsonHTTPResponse(http.StatusOK, `{
-				"data":[{"type":"buildUploads","id":"expired-upload","attributes":{"cfBundleVersion":"0"}}],
+				"data":[
+					{"type":"buildUploads","id":"expired-upload","attributes":{"cfBundleVersion":"0"}},
+					{"type":"buildUploads","id":"spaced-zero-upload","attributes":{"cfBundleVersion":"0 .1"}}
+				],
 				"links":{"next":""}
 			}`), nil
 

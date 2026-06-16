@@ -549,7 +549,9 @@ func isNonPositiveNumericBuildNumber(raw string) bool {
 	if len(segments) == 0 {
 		return false
 	}
-	for _, segment := range segments {
+	for i, segment := range segments {
+		segment = strings.TrimSpace(segment)
+		segments[i] = segment
 		if segment == "" {
 			return false
 		}
