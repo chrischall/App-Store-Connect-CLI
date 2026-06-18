@@ -1,0 +1,179 @@
+# telemetry
+
+> Manage anonymous CLI telemetry settings
+
+The `telemetry` command controls anonymous product telemetry for the CLI.
+Telemetry records coarse command-level usage so maintainers can understand which
+commands are used, which versions are active, and where reliability work is
+needed.
+
+Telemetry is enabled by default for every runtime. It remains enabled in CI,
+Rork sandboxes, Rork GitHub workflows, and explicitly ephemeral environments;
+events from those disposable runtimes omit the durable local install ID. Use
+`asc telemetry disable`, `ASC_TELEMETRY_DISABLED`, or `DO_NOT_TRACK` to opt out.
+
+The CLI payload does **not** include raw arguments, Apple account identifiers,
+team IDs, issuer IDs, key IDs, app IDs, bundle IDs, usernames, hostnames,
+repository names, IP addresses, user-agent strings, or file paths. As with any
+HTTPS service, the collector's edge provider sees the connection address; the
+Rork collector may use it transiently for abuse throttling but does not persist
+it in telemetry events or analytics storage.
+
+## Usage
+
+```bash  theme={null}
+asc telemetry <subcommand>
+```
+
+## Subcommands
+
+<ParamField path="status">
+  Show whether telemetry is enabled, the local state path, endpoint, and the
+  anonymous local install ID when one exists.
+</ParamField>
+
+<ParamField path="enable">
+  Enable anonymous telemetry in local CLI state.
+</ParamField>
+
+<ParamField path="disable">
+  Disable anonymous telemetry in local CLI state.
+</ParamField>
+
+<ParamField path="reset-id">
+  Reset the anonymous local install ID.
+</ParamField>
+
+## Examples
+
+```bash  theme={null}
+asc telemetry status
+asc telemetry status --output json
+asc telemetry disable
+asc telemetry enable
+asc telemetry reset-id
+```
+
+## Environment Controls
+
+<ParamField path="ASC_TELEMETRY_DISABLED" type="boolean">
+  Disable telemetry for the current process when set to `true`, `1`, `yes`,
+  `y`, or `on`.
+</ParamField>
+
+<ParamField path="DO_NOT_TRACK" type="boolean">
+  Disable telemetry for the current process when set to `true`, `1`, `yes`,
+  `y`, or `on`.
+</ParamField>
+
+<ParamField path="ASC_TELEMETRY_ENDPOINT" type="string">
+  Override the telemetry collector endpoint. The endpoint must be HTTPS and
+  must not contain embedded credentials.
+</ParamField>
+
+<ParamField path="ASC_TELEMETRY_EPHEMERAL" type="boolean">
+  Mark the current runtime as ephemeral when set to `true`, `1`, `yes`, `y`,
+  or `on`. Events are still sent, but the local install ID is omitted.
+</ParamField>
+
+## Event Payload
+
+The CLI sends a single best-effort JSON event after command completion:
+
+```json
+{
+  "event_id": "2d2f86dd-6d75-4a6f-b97f-a6ce15d4bc79",
+  "schema_version": 1,
+  "asc_version": "1.13.0",
+  "os": "darwin",
+  "arch": "arm64",
+  "command_path": "asc builds list",
+  "command_family": "builds",
+  "duration_ms": 842,
+  "duration_bucket": "500ms_1s",
+  "exit_code": 0,
+  "success": true,
+  "runtime_context": "local",
+  "invocation_source": "codex_desktop",
+  "install_id": "5fd9bf39-2e0d-45c1-8e4a-b65a58159ed7",
+  "session_id": "ac8062e3-e6d2-4301-8d08-bb444cd55004"
+}
+```
+
+Raw command arguments never enter event construction. `command_path` comes only
+from the CLI's registered command tree, so flag values and positional values
+cannot become telemetry dimensions. `session_id` is reused only within one CLI
+process and changes the next time `asc` starts.
+
+`runtime_context` describes where the command runs, independently from
+`invocation_source`, which describes what launched it. A command launched by
+Terminal, Claude Code, Cursor Agent, Codex Desktop, OpenCode, or Pi on the same
+local user account reuses the same install ID from `~/.asc/telemetry.json`.
+
+Known runtime contexts are `local`, `ephemeral`, `ci`, `rork_sandbox`, and
+`rork_github_workflow`. Known invocation sources are `terminal`, `claude_code`,
+`cursor_agent`, `codex_desktop`, `opencode`, `pi`, and `rork_agent`. Rork agent
+invocations are recognized from the production `RORK_SANDBOX_ID` marker or the
+`rorkai/user-workflows` GitHub Actions repository, not from a local auth profile
+name.
+
+The install ID represents local CLI state, not an Apple account, person, or
+hardware identifier. It is omitted for CI, Rork sandboxes, Rork GitHub
+workflows, and runtimes marked with `ASC_TELEMETRY_EPHEMERAL`, so known
+disposable machines do not inflate local active-install metrics.
+
+The sender accepts only an HTTPS collector endpoint without embedded
+credentials, refuses every redirect (including HTTPS redirects), and never
+attaches cookies from the CLI's other HTTP clients. Telemetry state reads are
+bounded, and delivery errors never change the command's result.
+
+The default collector uses Rork's existing API Worker route at
+`https://rork.com/cf-api/asc/v1/events`; it does not require a separate
+telemetry hostname.
+
+## Collector Contract
+
+Collectors should accept `POST /asc/v1/events`, validate the event schema, add
+server-side receive metadata, and insert accepted events into analytics storage.
+Collector credentials must never be shipped in the CLI.
+
+Recommended ClickHouse table:
+
+```sql
+CREATE TABLE asc_cli_events
+(
+  received_at DateTime64(3, 'UTC') DEFAULT now64(3),
+  event_date Date MATERIALIZED toDate(received_at),
+  event_id UUID,
+  schema_version UInt8,
+  asc_version String,
+  os LowCardinality(String),
+  arch LowCardinality(String),
+  command_path LowCardinality(String),
+  command_family LowCardinality(String),
+  duration_ms UInt32,
+  duration_bucket LowCardinality(String),
+  exit_code Int16,
+  success Bool,
+  runtime_context LowCardinality(String),
+  invocation_source LowCardinality(String),
+  install_id Nullable(UUID),
+  session_id UUID,
+  source LowCardinality(String),
+  collector_version LowCardinality(String)
+)
+ENGINE = MergeTree
+PARTITION BY toYYYYMM(event_date)
+ORDER BY (event_date, runtime_context, invocation_source, command_family, asc_version);
+```
+
+For example, local active installations can be deduplicated across manual and
+agent-assisted commands with:
+
+```sql
+SELECT uniqExact(install_id) AS local_active_installs
+FROM asc_cli_events
+WHERE event_date = today()
+  AND runtime_context = 'local'
+  AND install_id IS NOT NULL;
+```

@@ -188,6 +188,39 @@ Configure default output formats.
   Explicit `--output` flags always override this variable.
 </ParamField>
 
+## Telemetry variables
+
+Anonymous command-level CLI telemetry is enabled by default in local, agent,
+CI, and other ephemeral runtimes. Disposable runtimes omit the durable local
+install ID without disabling event delivery. Use these variables to opt out or
+adjust runtime handling.
+
+<ParamField path="ASC_TELEMETRY_DISABLED" type="boolean">
+  Disable anonymous telemetry for the current process
+
+  Set to `true`, `1`, `yes`, `y`, or `on` to disable telemetry.
+</ParamField>
+
+<ParamField path="DO_NOT_TRACK" type="boolean">
+  Disable anonymous telemetry for the current process
+
+  Set to `true`, `1`, `yes`, `y`, or `on` to disable telemetry.
+</ParamField>
+
+<ParamField path="ASC_TELEMETRY_ENDPOINT" type="string">
+  Override the HTTPS telemetry collector endpoint. Telemetry requests do not
+  follow redirects, do not attach ambient cookies, and reject endpoint URLs
+  containing embedded credentials.
+</ParamField>
+
+<ParamField path="ASC_TELEMETRY_EPHEMERAL" type="boolean">
+  Mark the current runtime as ephemeral without disabling telemetry.
+
+  Set to `true`, `1`, `yes`, `y`, or `on` to omit the local install ID from
+  emitted events. Use this for disposable cloud agents or virtual machines that
+  are not already identified as CI or a Rork sandbox.
+</ParamField>
+
 ## Configuration path
 
 <ParamField path="ASC_CONFIG_PATH" type="string">

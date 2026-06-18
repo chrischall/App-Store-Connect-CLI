@@ -152,7 +152,8 @@
               "commands/xcode-cloud",
               "commands/notify",
               "commands/migrate",
-              "commands/completion"
+              "commands/completion",
+              "commands/telemetry"
             ]
           }
         ]
