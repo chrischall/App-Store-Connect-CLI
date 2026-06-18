@@ -36,6 +36,7 @@
             "pages": [
               "guides/testflight",
               "guides/app-store-submission",
+              "guides/agent-ios-release",
               "guides/code-signing",
               "guides/metadata-management",
               "guides/analytics-reports",
