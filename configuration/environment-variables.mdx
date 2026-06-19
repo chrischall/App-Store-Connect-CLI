@@ -190,19 +190,19 @@ Configure default output formats.
 
 ## Telemetry variables
 
-Anonymous command-level CLI telemetry is enabled by default in local, agent,
-CI, and other ephemeral runtimes. Disposable runtimes omit the durable local
-install ID without disabling event delivery. Use these variables to opt out or
-adjust runtime handling.
+Pseudonymous command-level CLI telemetry is enabled by default in local, agent,
+CI, and other ephemeral runtimes. Local events include a random installation ID;
+disposable runtimes omit that ID without disabling event delivery. Use these
+variables to opt out or adjust runtime handling.
 
 <ParamField path="ASC_TELEMETRY_DISABLED" type="boolean">
-  Disable anonymous telemetry for the current process
+  Disable telemetry for the current process
 
   Set to `true`, `1`, `yes`, `y`, or `on` to disable telemetry.
 </ParamField>
 
 <ParamField path="DO_NOT_TRACK" type="boolean">
-  Disable anonymous telemetry for the current process
+  Disable telemetry for the current process
 
   Set to `true`, `1`, `yes`, `y`, or `on` to disable telemetry.
 </ParamField>
