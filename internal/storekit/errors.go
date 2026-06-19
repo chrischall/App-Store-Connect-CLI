@@ -1,6 +1,7 @@
 package storekit
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -41,13 +42,13 @@ func (e *APIError) Error() string {
 
 func parseAPIError(body []byte, statusCode int, retryAfter string) error {
 	var response struct {
-		Code    string `json:"errorCode"`
-		Message string `json:"errorMessage"`
+		Code    json.RawMessage `json:"errorCode"`
+		Message string          `json:"errorMessage"`
 	}
 	_ = json.Unmarshal(body, &response)
 	err := &APIError{
 		StatusCode: statusCode,
-		Code:       strings.TrimSpace(response.Code),
+		Code:       decodeErrorCode(response.Code),
 		Message:    strings.TrimSpace(response.Message),
 		Body:       sanitizedBody(body),
 	}
@@ -55,6 +56,24 @@ func parseAPIError(body []byte, statusCode int, retryAfter string) error {
 		err.RetryAfter = time.UnixMilli(milliseconds)
 	}
 	return err
+}
+
+func decodeErrorCode(raw json.RawMessage) string {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return ""
+	}
+	var stringCode string
+	if err := json.Unmarshal(raw, &stringCode); err == nil {
+		return strings.TrimSpace(stringCode)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var number json.Number
+	if err := decoder.Decode(&number); err == nil {
+		return number.String()
+	}
+	return ""
 }
 
 func sanitizedBody(body []byte) string {

@@ -83,9 +83,9 @@ func (c *Client) SetDefault(ctx context.Context, productID, locale, messageIdent
 	if err != nil {
 		return nil, err
 	}
-	var response DefaultMessageResponse
+	response := DefaultMessageResponse{MessageIdentifier: strings.TrimSpace(messageIdentifier)}
 	path := defaultPath(productID, locale)
-	if err := c.request(ctx, http.MethodPut, path, "application/json", body, &response); err != nil {
+	if err := c.request(ctx, http.MethodPut, path, "application/json", body, nil); err != nil {
 		return nil, err
 	}
 	return &response, nil
@@ -127,8 +127,8 @@ func (c *Client) SetRealtimeURL(ctx context.Context, realtimeURL string) (*Realt
 	if err != nil {
 		return nil, err
 	}
-	var response RealtimeURLResponse
-	if err := c.request(ctx, http.MethodPut, "realtime/url", "application/json", body, &response); err != nil {
+	response := RealtimeURLResponse{RealtimeURL: strings.TrimSpace(realtimeURL)}
+	if err := c.request(ctx, http.MethodPut, "realtime/url", "application/json", body, nil); err != nil {
 		return nil, err
 	}
 	return &response, nil

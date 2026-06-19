@@ -187,6 +187,53 @@ func TestClientDecodesAPIErrorAndRetryAfter(t *testing.T) {
 	}
 }
 
+func TestClientDecodesNumericAPIErrorCode(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"errorCode":4000001,"errorMessage":"Too many bullet points"}`)
+	}))
+	defer server.Close()
+
+	client, err := NewClient(testCredentials(t), Sandbox, WithHTTPClient(server.Client()), WithBaseURL(server.URL))
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	_, err = client.ListMessages(context.Background())
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("error = %T %v, want *APIError", err, err)
+	}
+	if apiErr.Code != "4000001" || apiErr.Message != "Too many bullet points" {
+		t.Fatalf("APIError = %#v", apiErr)
+	}
+}
+
+func TestConfigureReturnsRequestedValueForEmptySuccessResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	client, err := NewClient(testCredentials(t), Sandbox, WithHTTPClient(server.Client()), WithBaseURL(server.URL))
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+
+	configuredDefault, err := client.SetDefault(context.Background(), "monthly", "en-US", "33333333-3333-4333-8333-333333333333")
+	if err != nil {
+		t.Fatalf("SetDefault() error = %v", err)
+	}
+	if configuredDefault.MessageIdentifier != "33333333-3333-4333-8333-333333333333" {
+		t.Fatalf("SetDefault() = %#v", configuredDefault)
+	}
+	configuredURL, err := client.SetRealtimeURL(context.Background(), "https://example.com/retention")
+	if err != nil {
+		t.Fatalf("SetRealtimeURL() error = %v", err)
+	}
+	if configuredURL.RealtimeURL != "https://example.com/retention" {
+		t.Fatalf("SetRealtimeURL() = %#v", configuredURL)
+	}
+}
+
 func TestValidateMessageRequiresImageAccessibilityText(t *testing.T) {
 	message := Message{Header: "Stay", Body: "Keep your subscription", Image: &MessageImage{ImageIdentifier: "22222222-2222-4222-8222-222222222222"}}
 	if err := ValidateMessage(message); err == nil || !strings.Contains(err.Error(), "image alt text is required") {
