@@ -181,6 +181,9 @@ func SetDefaultCredentials(name string) error {
 	}
 	for _, credential := range credentials {
 		if credential.Name == name {
+			if credential.Source == "config" && strings.TrimSpace(credential.SourcePath) != "" {
+				return saveDefaultNameAt(name, credential.SourcePath)
+			}
 			return saveDefaultName(name)
 		}
 	}
@@ -363,10 +366,33 @@ func storeInConfigAt(name string, payload credentialPayload, path string) error 
 }
 
 func removeFromConfigIfPresent(name string) error {
-	path, err := config.Path()
+	paths, err := configStoragePaths()
 	if err != nil {
 		return err
 	}
+	removed := false
+	var mutationErrors []error
+	for _, path := range paths {
+		err := removeFromConfigAtIfPresent(name, path)
+		if err == nil {
+			removed = true
+			continue
+		}
+		if errors.Is(err, config.ErrNotFound) || errors.Is(err, keyring.ErrKeyNotFound) {
+			continue
+		}
+		mutationErrors = append(mutationErrors, fmt.Errorf("update StoreKit config %q: %w", path, err))
+	}
+	if len(mutationErrors) > 0 {
+		return errors.Join(mutationErrors...)
+	}
+	if !removed {
+		return keyring.ErrKeyNotFound
+	}
+	return nil
+}
+
+func removeFromConfigAtIfPresent(name, path string) error {
 	cfg, err := config.LoadAt(path)
 	if err != nil {
 		return err
@@ -391,19 +417,29 @@ func removeFromConfigIfPresent(name string) error {
 }
 
 func clearConfigCredentials() error {
-	path, err := config.Path()
+	paths, err := configStoragePaths()
 	if err != nil {
 		return err
 	}
-	cfg, err := config.LoadAt(path)
-	if err != nil {
-		if errors.Is(err, config.ErrNotFound) {
-			return nil
+	var mutationErrors []error
+	for _, path := range paths {
+		cfg, err := config.LoadAt(path)
+		if err != nil {
+			if errors.Is(err, config.ErrNotFound) {
+				continue
+			}
+			mutationErrors = append(mutationErrors, fmt.Errorf("load StoreKit config %q: %w", path, err))
+			continue
 		}
-		return err
+		if !hasStoreKitConfig(cfg) {
+			continue
+		}
+		cfg.StoreKit = config.StoreKitConfig{}
+		if err := config.SaveAt(path, cfg); err != nil {
+			mutationErrors = append(mutationErrors, fmt.Errorf("clear StoreKit config %q: %w", path, err))
+		}
 	}
-	cfg.StoreKit = config.StoreKitConfig{}
-	return config.SaveAt(path, cfg)
+	return errors.Join(mutationErrors...)
 }
 
 func saveDefaultName(name string) error {
@@ -411,6 +447,10 @@ func saveDefaultName(name string) error {
 	if err != nil {
 		return err
 	}
+	return saveDefaultNameAt(name, path)
+}
+
+func saveDefaultNameAt(name, path string) error {
 	cfg, err := config.LoadAt(path)
 	if err != nil {
 		if !errors.Is(err, config.ErrNotFound) {
@@ -423,22 +463,47 @@ func saveDefaultName(name string) error {
 }
 
 func clearDefaultNameIf(name string) error {
-	path, err := config.Path()
+	paths, err := configStoragePaths()
 	if err != nil {
 		return err
 	}
-	cfg, err := config.LoadAt(path)
-	if err != nil {
-		if errors.Is(err, config.ErrNotFound) {
-			return nil
+	var mutationErrors []error
+	for _, path := range paths {
+		cfg, err := config.LoadAt(path)
+		if err != nil {
+			if errors.Is(err, config.ErrNotFound) {
+				continue
+			}
+			mutationErrors = append(mutationErrors, fmt.Errorf("load StoreKit config %q: %w", path, err))
+			continue
 		}
-		return err
+		if cfg.StoreKit.DefaultKeyName == name {
+			cfg.StoreKit.DefaultKeyName = ""
+			if err := config.SaveAt(path, cfg); err != nil {
+				mutationErrors = append(mutationErrors, fmt.Errorf("update StoreKit config %q: %w", path, err))
+			}
+		}
 	}
-	if cfg.StoreKit.DefaultKeyName == name {
-		cfg.StoreKit.DefaultKeyName = ""
-		return config.SaveAt(path, cfg)
+	return errors.Join(mutationErrors...)
+}
+
+func configStoragePaths() ([]string, error) {
+	activePath, err := config.Path()
+	if err != nil {
+		return nil, err
 	}
-	return nil
+	paths := []string{activePath}
+	if strings.TrimSpace(os.Getenv("ASC_CONFIG_PATH")) != "" {
+		return paths, nil
+	}
+	globalPath, err := config.GlobalPath()
+	if err != nil {
+		return nil, err
+	}
+	if globalPath != activePath {
+		paths = append(paths, globalPath)
+	}
+	return paths, nil
 }
 
 func listFromConfig() ([]StoredCredential, error) {

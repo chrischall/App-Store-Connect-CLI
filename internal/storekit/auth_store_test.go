@@ -131,6 +131,128 @@ func TestGetCredentialsFallsBackToGlobalWhenLocalConfigHasNoStoreKitKeys(t *test
 	}
 }
 
+func TestSetDefaultCredentialsUpdatesGlobalCredentialSource(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ASC_CONFIG_PATH", "")
+	t.Setenv("ASC_STOREKIT_BYPASS_KEYCHAIN", "1")
+	globalPath, err := config.GlobalPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	credentials := testCredentials(t)
+	credentials.PrivateKeyPath = "/global/SubscriptionKey.p8"
+	credentials.PrivateKeyPEM = ""
+	if err := StoreCredentialsConfigAt("first", credentials, globalPath); err != nil {
+		t.Fatalf("StoreCredentialsConfigAt(first) error = %v", err)
+	}
+	if err := StoreCredentialsConfigAt("second", credentials, globalPath); err != nil {
+		t.Fatalf("StoreCredentialsConfigAt(second) error = %v", err)
+	}
+
+	projectDir := t.TempDir()
+	localPath := filepath.Join(projectDir, ".asc", "config.json")
+	if err := config.SaveAt(localPath, &config.Config{AppID: "local-app"}); err != nil {
+		t.Fatalf("SaveAt(local) error = %v", err)
+	}
+	t.Chdir(projectDir)
+
+	if err := SetDefaultCredentials("first"); err != nil {
+		t.Fatalf("SetDefaultCredentials(first) error = %v", err)
+	}
+	localConfig, err := config.LoadAt(localPath)
+	if err != nil {
+		t.Fatalf("LoadAt(local) error = %v", err)
+	}
+	if localConfig.StoreKit.DefaultKeyName != "" {
+		t.Fatalf("local default = %q, want empty", localConfig.StoreKit.DefaultKeyName)
+	}
+	globalConfig, err := config.LoadAt(globalPath)
+	if err != nil {
+		t.Fatalf("LoadAt(global) error = %v", err)
+	}
+	if globalConfig.StoreKit.DefaultKeyName != "first" {
+		t.Fatalf("global default = %q, want first", globalConfig.StoreKit.DefaultKeyName)
+	}
+}
+
+func TestRemoveCredentialsRemovesGlobalFallback(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ASC_CONFIG_PATH", "")
+	t.Setenv("ASC_STOREKIT_BYPASS_KEYCHAIN", "1")
+	globalPath, err := config.GlobalPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	credentials := testCredentials(t)
+	credentials.PrivateKeyPath = "/global/SubscriptionKey.p8"
+	credentials.PrivateKeyPEM = ""
+	if err := StoreCredentialsConfigAt("global", credentials, globalPath); err != nil {
+		t.Fatalf("StoreCredentialsConfigAt(global) error = %v", err)
+	}
+
+	projectDir := t.TempDir()
+	localPath := filepath.Join(projectDir, ".asc", "config.json")
+	if err := config.SaveAt(localPath, &config.Config{AppID: "local-app"}); err != nil {
+		t.Fatalf("SaveAt(local) error = %v", err)
+	}
+	t.Chdir(projectDir)
+
+	if err := RemoveCredentials("global"); err != nil {
+		t.Fatalf("RemoveCredentials(global) error = %v", err)
+	}
+	globalConfig, err := config.LoadAt(globalPath)
+	if err != nil {
+		t.Fatalf("LoadAt(global) error = %v", err)
+	}
+	if len(globalConfig.StoreKit.Keys) != 0 || globalConfig.StoreKit.DefaultKeyName != "" {
+		t.Fatalf("global StoreKit config was not cleared: %#v", globalConfig.StoreKit)
+	}
+}
+
+func TestRemoveAllCredentialsClearsLocalAndGlobalConfigs(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ASC_CONFIG_PATH", "")
+	t.Setenv("ASC_STOREKIT_BYPASS_KEYCHAIN", "1")
+	globalPath, err := config.GlobalPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	credentials := testCredentials(t)
+	credentials.PrivateKeyPath = "/global/SubscriptionKey.p8"
+	credentials.PrivateKeyPEM = ""
+	if err := StoreCredentialsConfigAt("global", credentials, globalPath); err != nil {
+		t.Fatalf("StoreCredentialsConfigAt(global) error = %v", err)
+	}
+
+	projectDir := t.TempDir()
+	localPath := filepath.Join(projectDir, ".asc", "config.json")
+	if err := config.SaveAt(localPath, &config.Config{AppID: "local-app"}); err != nil {
+		t.Fatalf("SaveAt(local) error = %v", err)
+	}
+	t.Chdir(projectDir)
+
+	if err := RemoveAllCredentials(); err != nil {
+		t.Fatalf("RemoveAllCredentials() error = %v", err)
+	}
+	globalConfig, err := config.LoadAt(globalPath)
+	if err != nil {
+		t.Fatalf("LoadAt(global) error = %v", err)
+	}
+	if len(globalConfig.StoreKit.Keys) != 0 || globalConfig.StoreKit.DefaultKeyName != "" {
+		t.Fatalf("global StoreKit config was not cleared: %#v", globalConfig.StoreKit)
+	}
+	localConfig, err := config.LoadAt(localPath)
+	if err != nil {
+		t.Fatalf("LoadAt(local) error = %v", err)
+	}
+	if localConfig.AppID != "local-app" || len(localConfig.StoreKit.Keys) != 0 || localConfig.StoreKit.DefaultKeyName != "" {
+		t.Fatalf("local non-StoreKit config changed or StoreKit config remains: %#v", localConfig)
+	}
+}
+
 func containsAny(value string, candidates ...string) bool {
 	for _, candidate := range candidates {
 		if strings.Contains(value, candidate) {
