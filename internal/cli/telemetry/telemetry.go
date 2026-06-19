@@ -16,13 +16,14 @@ func TelemetryCommand() *ffcli.Command {
 	return &ffcli.Command{
 		Name:       "telemetry",
 		ShortUsage: "asc telemetry <subcommand>",
-		ShortHelp:  "Manage anonymous CLI telemetry settings.",
-		LongHelp: `Manage anonymous CLI telemetry settings.
+		ShortHelp:  "Manage CLI telemetry settings.",
+		LongHelp: `Manage pseudonymous CLI telemetry settings.
 
-Telemetry is enabled by default and sends anonymous command-level usage events
-to help improve asc. It does not collect raw arguments, Apple account
-identifiers, app identifiers, bundle identifiers, usernames, hostnames, repo
-names, or paths. Use "asc telemetry disable" to opt out.
+Telemetry is enabled by default and sends command-level usage events to help
+improve asc. Local events include a random installation ID so activity from one
+installation can be grouped over time. It does not collect raw arguments, Apple
+account identifiers, app identifiers, bundle identifiers, usernames, hostnames,
+repo names, or paths. Use "asc telemetry disable" to opt out.
 
 Examples:
   asc telemetry status
@@ -52,7 +53,7 @@ func statusCommand() *ffcli.Command {
 	return &ffcli.Command{
 		Name:       "status",
 		ShortUsage: "asc telemetry status [flags]",
-		ShortHelp:  "Show anonymous telemetry status.",
+		ShortHelp:  "Show telemetry status.",
 		FlagSet:    fs,
 		UsageFunc:  shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {
@@ -84,11 +85,11 @@ func defaultStatusOutputFormat() string {
 }
 
 func enableCommand() *ffcli.Command {
-	return stateCommand("enable", "Enable anonymous telemetry.", true)
+	return stateCommand("enable", "Enable telemetry.", true)
 }
 
 func disableCommand() *ffcli.Command {
-	return stateCommand("disable", "Disable anonymous telemetry.", false)
+	return stateCommand("disable", "Disable telemetry.", false)
 }
 
 func stateCommand(name, help string, enabled bool) *ffcli.Command {
@@ -121,7 +122,7 @@ func resetIDCommand() *ffcli.Command {
 	return &ffcli.Command{
 		Name:       "reset-id",
 		ShortUsage: "asc telemetry reset-id",
-		ShortHelp:  "Reset the anonymous local install ID.",
+		ShortHelp:  "Reset the random local install ID.",
 		FlagSet:    fs,
 		UsageFunc:  shared.DefaultUsageFunc,
 		Exec: func(ctx context.Context, args []string) error {

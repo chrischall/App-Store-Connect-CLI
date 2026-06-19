@@ -21,6 +21,7 @@ Automate iOS, macOS, tvOS, and visionOS release workflows from your terminal, ID
 - [Sponsors](#sponsors)
 - [Quick Start](#quick-start)
 - [Troubleshooting](#troubleshooting)
+- [Privacy and telemetry](#privacy-and-telemetry)
 - [Support](#support)
 - [Wall of Apps](#wall-of-apps)
 - [Common Workflows](#common-workflows)
@@ -177,6 +178,33 @@ depending on a command in CI or scripts:
 - Use an explicit format when scripting or sharing repro steps: `--output json`, `--output table`, or `--output markdown`
 - Use `--pretty` with JSON when you want readable output in terminals or bug reports
 - Set a personal default with `ASC_DEFAULT_OUTPUT`, but remember `--output` always wins
+
+## Privacy and telemetry
+
+`asc` sends pseudonymous command-level usage telemetry by default to help
+maintainers understand which commands are used and where reliability work is
+needed. Local events include a random installation ID, which lets events from
+one installation be grouped over time; it is not derived from an Apple account
+or machine identifier.
+
+Telemetry includes the CLI version, operating system and architecture,
+registered command path, duration and exit outcome, runtime context, invocation
+source, and random event and session IDs. It does **not** include raw arguments
+or flag values, credentials, private keys, Apple account, team, or issuer IDs,
+app or bundle IDs, API responses, usernames, hostnames, repository names, or
+file paths.
+
+Review or change telemetry at any time:
+
+```bash
+asc telemetry status
+asc telemetry disable
+asc telemetry reset-id
+```
+
+`ASC_TELEMETRY_DISABLED=1` and `DO_NOT_TRACK=1` also disable telemetry. See the
+[telemetry reference](commands/telemetry.mdx) for the exact event payload,
+runtime handling, collector endpoint, and all controls.
 
 ## Support
 

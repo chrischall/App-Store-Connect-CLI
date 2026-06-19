@@ -1,11 +1,16 @@
 # telemetry
 
-> Manage anonymous CLI telemetry settings
+> Manage CLI telemetry settings
 
-The `telemetry` command controls anonymous product telemetry for the CLI.
+The `telemetry` command controls pseudonymous product telemetry for the CLI.
 Telemetry records coarse command-level usage so maintainers can understand which
 commands are used, which versions are active, and where reliability work is
 needed.
+
+For local runs, a random installation ID groups events from the same
+installation over time. Because that identifier persists until it is reset,
+the telemetry is pseudonymous rather than strictly anonymous. The ID is not
+derived from an Apple account, person, or hardware identifier.
 
 Telemetry is enabled by default for every runtime. It remains enabled in CI,
 Rork sandboxes, Rork GitHub workflows, and explicitly ephemeral environments;
@@ -29,19 +34,19 @@ asc telemetry <subcommand>
 
 <ParamField path="status">
   Show whether telemetry is enabled, the local state path, endpoint, and the
-  anonymous local install ID when one exists.
+  random local install ID when one exists.
 </ParamField>
 
 <ParamField path="enable">
-  Enable anonymous telemetry in local CLI state.
+  Enable telemetry in local CLI state.
 </ParamField>
 
 <ParamField path="disable">
-  Disable anonymous telemetry in local CLI state.
+  Disable telemetry in local CLI state.
 </ParamField>
 
 <ParamField path="reset-id">
-  Reset the anonymous local install ID.
+  Reset the random local install ID.
 </ParamField>
 
 ## Examples
