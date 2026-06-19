@@ -581,7 +581,7 @@ func performanceWaitCommand() *ffcli.Command {
 		if err != nil {
 			return fmt.Errorf("storekit retention-messaging performance wait: %w", err)
 		}
-		return printPerformanceResult(result, *output.Output, *output.Pretty)
+		return printWaitedPerformanceResult(result, *output.Output, *output.Pretty)
 	})
 }
 

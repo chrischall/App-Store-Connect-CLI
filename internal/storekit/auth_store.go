@@ -520,6 +520,20 @@ func loadConfigWithPath() (*config.Config, string, error) {
 	}
 	cfg, err := config.LoadAt(path)
 	if err == nil {
+		if strings.TrimSpace(os.Getenv("ASC_CONFIG_PATH")) != "" || hasStoreKitConfig(cfg) {
+			return cfg, path, nil
+		}
+		globalPath, globalErr := config.GlobalPath()
+		if globalErr != nil || globalPath == path {
+			return cfg, path, nil
+		}
+		globalConfig, globalErr := config.LoadAt(globalPath)
+		if globalErr == nil {
+			return globalConfig, globalPath, nil
+		}
+		if !errors.Is(globalErr, config.ErrNotFound) {
+			return nil, "", globalErr
+		}
 		return cfg, path, nil
 	}
 	if !errors.Is(err, config.ErrNotFound) || strings.TrimSpace(os.Getenv("ASC_CONFIG_PATH")) != "" {
@@ -534,6 +548,10 @@ func loadConfigWithPath() (*config.Config, string, error) {
 		return nil, "", err
 	}
 	return cfg, globalPath, nil
+}
+
+func hasStoreKitConfig(cfg *config.Config) bool {
+	return cfg != nil && (strings.TrimSpace(cfg.StoreKit.DefaultKeyName) != "" || len(cfg.StoreKit.Keys) > 0)
 }
 
 func storedFromPayload(name string, payload credentialPayload, source, sourcePath string) StoredCredential {

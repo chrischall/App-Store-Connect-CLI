@@ -260,6 +260,41 @@ func TestStoreKitMessagesUploadSuccess(t *testing.T) {
 	}
 }
 
+func TestStoreKitPerformanceWaitReturnsErrorForFailedTest(t *testing.T) {
+	setupStoreKitAuth(t)
+	originalTransport := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodGet || req.URL.Path != "/inApps/v1/messaging/performanceTest/result/request-1" {
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"result":"FAIL","successRate":90,"numPending":0}`)),
+		}, nil
+	})
+
+	root := RootCommand("1.2.3")
+	root.FlagSet.SetOutput(io.Discard)
+	var runErr error
+	stdout, stderr := captureOutput(t, func() {
+		if err := root.Parse([]string{
+			"storekit", "retention-messaging", "performance", "wait",
+			"--request-id", "request-1", "--environment", "sandbox", "--output", "json",
+		}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		runErr = root.Run(context.Background())
+	})
+	if runErr == nil || !strings.Contains(runErr.Error(), `performance test "request-1" failed`) {
+		t.Fatalf("run error = %v", runErr)
+	}
+	if stderr != "" || !strings.Contains(stdout, `"result":"FAIL"`) {
+		t.Fatalf("stdout=%q stderr=%q", stdout, stderr)
+	}
+}
+
 func TestStoreKitInvalidValuesAreUsageErrors(t *testing.T) {
 	tests := []struct {
 		name    string

@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/99designs/keyring"
+
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/config"
 )
 
 func TestStoredCredentialNeverMarshalsPrivateKeyMaterial(t *testing.T) {
@@ -87,6 +89,38 @@ func TestGetCredentialsPrefersActiveConfigOverSameNamedKeychainProfile(t *testin
 	}
 	if source != "config" || credentials.KeyID != "CONFIG_KEY" {
 		t.Fatalf("credentials = %#v source=%q", credentials, source)
+	}
+}
+
+func TestGetCredentialsFallsBackToGlobalWhenLocalConfigHasNoStoreKitKeys(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ASC_CONFIG_PATH", "")
+	t.Setenv("ASC_STOREKIT_BYPASS_KEYCHAIN", "1")
+	globalPath, err := config.GlobalPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	credentials := testCredentials(t)
+	credentials.PrivateKeyPath = "/global/SubscriptionKey.p8"
+	credentials.PrivateKeyPEM = ""
+	if err := StoreCredentialsConfigAt("global", credentials, globalPath); err != nil {
+		t.Fatalf("StoreCredentialsConfigAt(global) error = %v", err)
+	}
+
+	projectDir := t.TempDir()
+	localPath := filepath.Join(projectDir, ".asc", "config.json")
+	if err := config.SaveAt(localPath, &config.Config{AppID: "local-app"}); err != nil {
+		t.Fatalf("SaveAt(local) error = %v", err)
+	}
+	t.Chdir(projectDir)
+
+	resolved, source, err := GetCredentialsWithSource("global")
+	if err != nil {
+		t.Fatalf("GetCredentialsWithSource(global) error = %v", err)
+	}
+	if source != "config" || resolved.KeyID != credentials.KeyID || resolved.Profile != "global" {
+		t.Fatalf("credentials = %#v source=%q", resolved, source)
 	}
 }
 
