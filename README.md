@@ -379,6 +379,22 @@ See [guides/apple-ads-playbooks.mdx](guides/apple-ads-playbooks.mdx) for
 operator playbooks covering credential safety, org inspection, read-only smoke
 tests, reporting, raw API usage, and guarded mutations.
 
+### StoreKit Retention Messaging
+
+Retention Messaging uses a dedicated In-App Purchase API key, separate from
+App Store Connect API credentials:
+
+```bash
+asc storekit auth login --name Production --key-id "KEY_ID" --issuer-id "ISSUER_ID" --private-key ./SubscriptionKey.p8 --bundle-id com.example.app
+asc storekit auth doctor --environment sandbox --network
+asc storekit retention-messaging messages list --environment sandbox --output json
+asc storekit retention-messaging endpoint view --environment production
+```
+
+See [docs/architecture/storekit-retention-messaging.md](docs/architecture/storekit-retention-messaging.md)
+for the endpoint map, message and image requirements, environment variables,
+and the full sandbox verification sequence.
+
 ## Commands and Reference
 
 Use built-in help as the source of truth:
@@ -405,6 +421,7 @@ For full command families, flags, and discovery patterns, see:
 - [docs/COMMANDS.md](docs/COMMANDS.md) - Command families and reference navigation
 - [docs/WORKFLOWS.md](docs/WORKFLOWS.md) - Reusable workflow patterns, including local Xcode to TestFlight
 - [guides/apple-ads-playbooks.mdx](guides/apple-ads-playbooks.mdx) - Apple Ads operator playbooks
+- [docs/architecture/storekit-retention-messaging.md](docs/architecture/storekit-retention-messaging.md) - Retention Messaging setup and sandbox verification
 - [docs/API_NOTES.md](docs/API_NOTES.md) - API quirks and behaviors
 - [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) - CLI development and testing notes
 - [docs/TESTING.md](docs/TESTING.md) - Testing patterns and conventions

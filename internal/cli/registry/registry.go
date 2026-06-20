@@ -66,6 +66,7 @@ import (
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/signing"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/snitch"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/status"
+	storekitcmd "github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/storekit"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/submit"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/subscriptions"
 	telemetrycmd "github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/telemetry"
@@ -163,6 +164,7 @@ func Subcommands(version string) []*ffcli.Command {
 		signing.SigningCommand(),
 		notarization.NotarizationCommand(),
 		iap.IAPCommand(),
+		storekitcmd.Command(),
 		app_events.Command(),
 		subscriptions.SubscriptionsCommand(),
 		submit.SubmitCommand(),
