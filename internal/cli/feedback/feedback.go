@@ -97,7 +97,8 @@ func runListCommand(ctx context.Context, config shared.ListCommandConfig, flags 
 		return fmt.Errorf("%s: %w", prefix, err)
 	}
 	if err := shared.ValidateInclude(*flags.include, "build", "tester"); err != nil {
-		return fmt.Errorf("%s: %w", prefix, err)
+		fmt.Fprintf(os.Stderr, "Error: %s\n\n", err)
+		return flag.ErrHelp
 	}
 
 	resolvedAppID := shared.ResolveAppID(*flags.appID)
