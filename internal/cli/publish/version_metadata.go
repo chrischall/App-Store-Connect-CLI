@@ -36,6 +36,9 @@ func applyPublishVersionMetadata(ctx context.Context, client *asc.Client, opts p
 	}
 
 	results, warnings, err := shared.UploadVersionLocalizationsWithWarnings(ctx, client, versionID, valuesByLocale, false, shared.SubmitReadinessOptions{})
+	if err != nil && len(results) == 0 {
+		return nil, err
+	}
 	if len(warnings) > 0 {
 		if warnErr := shared.PrintSubmitReadinessCreateWarnings(os.Stderr, warnings); warnErr != nil {
 			return nil, warnErr
