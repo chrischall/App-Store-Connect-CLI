@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -411,6 +412,117 @@ func TestMetadataApplyFailsOnPartialMutation(t *testing.T) {
 	}
 	if len(artifact.Failures) != 1 || artifact.Failures[0].Scope != "version" || artifact.Failures[0].Locale != "fr-FR" || artifact.Failures[0].Action != "update" || artifact.Failures[0].LocalizationID != "loc-ver-fr" || artifact.Failures[0].DesiredFields["description"] != "Local French" {
 		t.Fatalf("unexpected failure artifact: %+v", artifact)
+	}
+}
+
+func TestMetadataApplyIgnoresRemoteOnlyEmptyLocalizationAcrossResume(t *testing.T) {
+	setupAuth(t)
+	t.Setenv("ASC_CONFIG_PATH", filepath.Join(t.TempDir(), "nonexistent.json"))
+	t.Setenv("ASC_APP_ID", "")
+	t.Chdir(t.TempDir())
+
+	metadataDir := filepath.Join(t.TempDir(), "metadata")
+	versionDir := filepath.Join(metadataDir, "version", "1.2.3")
+	if err := os.MkdirAll(versionDir, 0o755); err != nil {
+		t.Fatalf("mkdir version metadata: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(versionDir, "bn-BD.json"), []byte(`{"description":"Desired Bangla"}`), 0o600); err != nil {
+		t.Fatalf("write version metadata: %v", err)
+	}
+
+	originalTransport := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+	remoteDescription := "Old Bangla"
+	patches := 0
+	deletes := 0
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.Path {
+		case "/v1/apps/app-1/appInfos":
+			return jsonHTTPResponse(http.StatusOK, `{"data":[{"type":"appInfos","id":"appinfo-1","attributes":{"state":"PREPARE_FOR_SUBMISSION"}}]}`), nil
+		case "/v1/apps/app-1/appStoreVersions":
+			return jsonHTTPResponse(http.StatusOK, `{"data":[{"type":"appStoreVersions","id":"version-1","attributes":{"versionString":"1.2.3","platform":"IOS"}}],"links":{}}`), nil
+		case "/v1/appInfos/appinfo-1/appInfoLocalizations":
+			return jsonHTTPResponse(http.StatusOK, `{"data":[],"links":{}}`), nil
+		case "/v1/appStoreVersions/version-1/appStoreVersionLocalizations":
+			body := fmt.Sprintf(`{"data":[{"type":"appStoreVersionLocalizations","id":"loc-bn","attributes":{"locale":"bn-BD","description":%q}},{"type":"appStoreVersionLocalizations","id":"loc-empty","attributes":{"locale":"en-US","description":"","keywords":"","marketingUrl":"","promotionalText":"","supportUrl":"","whatsNew":""}}],"links":{}}`, remoteDescription)
+			return jsonHTTPResponse(http.StatusOK, body), nil
+		case "/v1/appStoreVersionLocalizations/loc-bn":
+			if req.Method != http.MethodPatch {
+				t.Fatalf("unexpected request: %s %s", req.Method, req.URL.Path)
+			}
+			patches++
+			assertMetadataPatchPayload(t, req, "appStoreVersionLocalizations", "loc-bn", map[string]string{"description": "Desired Bangla"})
+			if patches == 1 {
+				return jsonHTTPResponse(http.StatusUnprocessableEntity, `{"errors":[{"status":"422","code":"ENTITY_ERROR","detail":"temporary Apple rejection"}]}`), nil
+			}
+			remoteDescription = "Desired Bangla"
+			return jsonHTTPResponse(http.StatusOK, `{"data":{"type":"appStoreVersionLocalizations","id":"loc-bn","attributes":{"locale":"bn-BD","description":"Desired Bangla"}}}`), nil
+		case "/v1/appStoreVersionLocalizations/loc-empty":
+			deletes++
+			t.Fatalf("empty remote-only localization must not be deleted: %s %s", req.Method, req.URL.Path)
+			return nil, nil
+		default:
+			t.Fatalf("unexpected request: %s %s?%s", req.Method, req.URL.Path, req.URL.RawQuery)
+			return nil, nil
+		}
+	})
+
+	type result struct {
+		Applied   bool              `json:"applied"`
+		DryRun    bool              `json:"dryRun"`
+		Updates   []json.RawMessage `json:"updates"`
+		Deletes   []json.RawMessage `json:"deletes"`
+		Total     int               `json:"total"`
+		Succeeded int               `json:"succeeded"`
+		Failed    int               `json:"failed"`
+	}
+	runApply := func(t *testing.T, dryRun bool) (result, error) {
+		t.Helper()
+		args := []string{"metadata", "apply", "--app", "app-1", "--version", "1.2.3", "--dir", metadataDir, "--output", "json"}
+		if dryRun {
+			args = append(args, "--dry-run")
+		}
+		root := RootCommand("1.2.3")
+		root.FlagSet.SetOutput(io.Discard)
+		var runErr error
+		stdout, stderr := captureOutput(t, func() {
+			if err := root.Parse(args); err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			runErr = root.Run(context.Background())
+		})
+		if stderr != "" {
+			t.Fatalf("unexpected stderr: %q", stderr)
+		}
+		var parsed result
+		if err := json.Unmarshal([]byte(stdout), &parsed); err != nil {
+			t.Fatalf("decode output: %v\n%s", err, stdout)
+		}
+		return parsed, runErr
+	}
+
+	initialPlan, err := runApply(t, true)
+	if err != nil || !initialPlan.DryRun || len(initialPlan.Updates) != 1 || len(initialPlan.Deletes) != 0 {
+		t.Fatalf("unexpected initial plan: result=%+v err=%v", initialPlan, err)
+	}
+	partial, err := runApply(t, false)
+	if _, ok := errors.AsType[ReportedError](err); !ok || partial.Total != 1 || partial.Succeeded != 0 || partial.Failed != 1 {
+		t.Fatalf("expected one reported mutation failure: result=%+v err=%T %v", partial, err, err)
+	}
+	resumePlan, err := runApply(t, true)
+	if err != nil || len(resumePlan.Updates) != 1 || len(resumePlan.Deletes) != 0 {
+		t.Fatalf("unexpected resume plan: result=%+v err=%v", resumePlan, err)
+	}
+	resumed, err := runApply(t, false)
+	if err != nil || resumed.Total != 1 || resumed.Succeeded != 1 || resumed.Failed != 0 || !resumed.Applied {
+		t.Fatalf("unexpected resume result: result=%+v err=%v", resumed, err)
+	}
+	noOp, err := runApply(t, false)
+	if err != nil || noOp.Total != 0 || noOp.Failed != 0 || !noOp.Applied || len(noOp.Deletes) != 0 {
+		t.Fatalf("unexpected no-op result: result=%+v err=%v", noOp, err)
+	}
+	if patches != 2 || deletes != 0 {
+		t.Fatalf("unexpected mutations: patches=%d deletes=%d", patches, deletes)
 	}
 }
 

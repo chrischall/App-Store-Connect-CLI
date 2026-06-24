@@ -737,6 +737,9 @@ func applyAppInfoChanges(
 		}
 
 		if !localExists && remoteExists {
+			if !hasTrackedRemoteFields(appInfoPlanFields, remoteState.fields) {
+				continue
+			}
 			if !allowDeletes {
 				return actions, fmt.Errorf("delete operations require --allow-deletes")
 			}
@@ -870,6 +873,9 @@ func applyVersionChanges(
 		}
 
 		if !localExists && remoteExists {
+			if !hasTrackedRemoteFields(versionPlanFields, remoteState.fields) {
+				continue
+			}
 			if !allowDeletes {
 				return actions, fmt.Errorf("delete operations require --allow-deletes")
 			}
@@ -963,7 +969,7 @@ func canceledAppInfoAction(
 	err error,
 ) (ApplyAction, bool) {
 	if !localExists {
-		if remoteExists && allowDeletes {
+		if remoteExists && allowDeletes && hasTrackedRemoteFields(appInfoPlanFields, remoteState.fields) {
 			return failedMetadataAction(appInfoDirName, locale, "", "delete", remoteState.id, nil, err), true
 		}
 		return ApplyAction{}, false
@@ -989,7 +995,7 @@ func canceledVersionAction(
 	err error,
 ) (ApplyAction, bool) {
 	if !localExists {
-		if remoteExists && allowDeletes {
+		if remoteExists && allowDeletes && hasTrackedRemoteFields(versionPlanFields, remoteState.fields) {
 			return failedMetadataAction(versionDirName, locale, version, "delete", remoteState.id, nil, err), true
 		}
 		return ApplyAction{}, false
@@ -1002,6 +1008,15 @@ func canceledVersionAction(
 		return failedMetadataAction(versionDirName, locale, version, "create", "", versionFields(effectiveVersionCreateLocalization(localPatch)), err), true
 	}
 	return failedMetadataAction(versionDirName, locale, version, "update", remoteState.id, localPatch.setFields, err), true
+}
+
+func hasTrackedRemoteFields(fields []string, values map[string]string) bool {
+	for _, field := range fields {
+		if _, ok := values[field]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func runMetadataMutation(
