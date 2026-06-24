@@ -486,6 +486,7 @@ func TestSubscriptionsIntroductoryOffersCreateAllTerritoriesSkipsExistingBeforeC
 			"--offer-mode", "FREE_TRIAL",
 			"--number-of-periods", "1",
 			"--all-territories",
+			"--output", "json",
 		}); err != nil {
 			t.Fatalf("parse error: %v", err)
 		}
