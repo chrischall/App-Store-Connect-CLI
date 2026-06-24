@@ -2,6 +2,7 @@ package cmdtest
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"io"
@@ -13,6 +14,29 @@ import (
 
 	rootcmd "github.com/rudrankriyam/App-Store-Connect-CLI/cmd"
 )
+
+type betaSubmissionListOutput struct {
+	Data []struct {
+		ID string `json:"id"`
+	} `json:"data"`
+	Included []struct {
+		Type       string `json:"type"`
+		ID         string `json:"id"`
+		Attributes struct {
+			Version string `json:"version"`
+		} `json:"attributes"`
+	} `json:"included"`
+}
+
+func decodeBetaSubmissionListOutput(t *testing.T, stdout string) betaSubmissionListOutput {
+	t.Helper()
+
+	var output betaSubmissionListOutput
+	if err := json.Unmarshal([]byte(stdout), &output); err != nil {
+		t.Fatalf("failed to parse JSON output: %v\noutput: %s", err, stdout)
+	}
+	return output
+}
 
 // okJSONResponse builds a 200 JSON response for the mock transport.
 func okJSONResponse(body string) *http.Response {
@@ -45,7 +69,7 @@ func TestCrashesListIncludeBuildSendsBuildRelationship(t *testing.T) {
 	root.FlagSet.SetOutput(io.Discard)
 
 	stdout, stderr := captureOutput(t, func() {
-		if err := root.Parse([]string{"testflight", "crashes", "list", "--app", "123", "--include", "build"}); err != nil {
+		if err := root.Parse([]string{"testflight", "crashes", "list", "--app", "123", "--include", "build", "--output", "json"}); err != nil {
 			t.Fatalf("parse error: %v", err)
 		}
 		if err := root.Run(context.Background()); err != nil {
@@ -62,8 +86,12 @@ func TestCrashesListIncludeBuildSendsBuildRelationship(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("expected empty stderr, got %q", stderr)
 	}
-	if !strings.Contains(stdout, `"id":"crash-1"`) {
-		t.Fatalf("expected crash output, got %q", stdout)
+	output := decodeBetaSubmissionListOutput(t, stdout)
+	if len(output.Data) != 1 || output.Data[0].ID != "crash-1" {
+		t.Fatalf("unexpected crash data: %+v", output.Data)
+	}
+	if len(output.Included) != 1 || output.Included[0].Type != "builds" || output.Included[0].ID != "b1" || output.Included[0].Attributes.Version != "532621" {
+		t.Fatalf("unexpected included build: %+v", output.Included)
 	}
 }
 
@@ -125,7 +153,7 @@ func TestFeedbackListIncludeBuildSendsBuildRelationship(t *testing.T) {
 	root.FlagSet.SetOutput(io.Discard)
 
 	stdout, stderr := captureOutput(t, func() {
-		if err := root.Parse([]string{"testflight", "feedback", "list", "--app", "123", "--include", "build"}); err != nil {
+		if err := root.Parse([]string{"testflight", "feedback", "list", "--app", "123", "--include", "build", "--output", "json"}); err != nil {
 			t.Fatalf("parse error: %v", err)
 		}
 		if err := root.Run(context.Background()); err != nil {
@@ -142,8 +170,12 @@ func TestFeedbackListIncludeBuildSendsBuildRelationship(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("expected empty stderr, got %q", stderr)
 	}
-	if !strings.Contains(stdout, `"id":"fb-1"`) {
-		t.Fatalf("expected feedback output, got %q", stdout)
+	output := decodeBetaSubmissionListOutput(t, stdout)
+	if len(output.Data) != 1 || output.Data[0].ID != "fb-1" {
+		t.Fatalf("unexpected feedback data: %+v", output.Data)
+	}
+	if len(output.Included) != 1 || output.Included[0].Type != "builds" || output.Included[0].ID != "b1" || output.Included[0].Attributes.Version != "532621" {
+		t.Fatalf("unexpected included build: %+v", output.Included)
 	}
 }
 
