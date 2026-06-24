@@ -19,7 +19,9 @@ type stubVersionLocalizationClient struct {
 	getResp  *asc.AppStoreVersionLocalizationsResponse
 	getResps []*asc.AppStoreVersionLocalizationsResponse
 	getErr   error
+	getErrs  []error
 	getCalls int
+	onGet    func(context.Context, int)
 
 	createErrs        []error
 	createCalls       []asc.AppStoreVersionLocalizationAttributes
@@ -36,16 +38,25 @@ type expiringVersionLocalizationClient struct {
 type stubAppInfoLocalizationClient struct {
 	getResp     *asc.AppInfoLocalizationsResponse
 	getResps    []*asc.AppInfoLocalizationsResponse
+	getErrs     []error
 	getCalls    int
 	createErrs  []error
 	createCalls []asc.AppInfoLocalizationAttributes
 	updateErrs  []error
 	updateCalls []map[string]string
+	onGet       func(context.Context, int)
 }
 
-func (s *stubAppInfoLocalizationClient) GetAppInfoLocalizations(context.Context, string, ...asc.AppInfoLocalizationsOption) (*asc.AppInfoLocalizationsResponse, error) {
+func (s *stubAppInfoLocalizationClient) GetAppInfoLocalizations(ctx context.Context, _ string, _ ...asc.AppInfoLocalizationsOption) (*asc.AppInfoLocalizationsResponse, error) {
 	s.getCalls++
-	if index := s.getCalls - 1; index >= 0 && index < len(s.getResps) {
+	if s.onGet != nil {
+		s.onGet(ctx, s.getCalls)
+	}
+	index := s.getCalls - 1
+	if index >= 0 && index < len(s.getErrs) && s.getErrs[index] != nil {
+		return nil, s.getErrs[index]
+	}
+	if index >= 0 && index < len(s.getResps) {
 		return s.getResps[index], nil
 	}
 	return s.getResp, nil
@@ -93,12 +104,19 @@ func (c *expiringVersionLocalizationClient) UpdateAppStoreVersionLocalizationFie
 	return nil, &asc.RetryableError{Err: ctx.Err()}
 }
 
-func (s *stubVersionLocalizationClient) GetAppStoreVersionLocalizations(_ context.Context, _ string, _ ...asc.AppStoreVersionLocalizationsOption) (*asc.AppStoreVersionLocalizationsResponse, error) {
+func (s *stubVersionLocalizationClient) GetAppStoreVersionLocalizations(ctx context.Context, _ string, _ ...asc.AppStoreVersionLocalizationsOption) (*asc.AppStoreVersionLocalizationsResponse, error) {
 	s.getCalls++
+	if s.onGet != nil {
+		s.onGet(ctx, s.getCalls)
+	}
 	if s.getErr != nil {
 		return nil, s.getErr
 	}
-	if index := s.getCalls - 1; index >= 0 && index < len(s.getResps) {
+	index := s.getCalls - 1
+	if index >= 0 && index < len(s.getErrs) && s.getErrs[index] != nil {
+		return nil, s.getErrs[index]
+	}
+	if index >= 0 && index < len(s.getResps) {
 		return s.getResps[index], nil
 	}
 	return s.getResp, nil
@@ -148,6 +166,47 @@ func TestUploadVersionLocalizations_SkipsExactExistingValues(t *testing.T) {
 	}
 }
 
+func TestUploadVersionLocalizations_SkipsExactExistingValuesOnSecondPage(t *testing.T) {
+	t.Setenv("ASC_TIMEOUT", "150ms")
+	client := &stubVersionLocalizationClient{
+		getResps: []*asc.AppStoreVersionLocalizationsResponse{
+			{
+				Data:  []asc.Resource[asc.AppStoreVersionLocalizationAttributes]{{ID: "first-page", Attributes: asc.AppStoreVersionLocalizationAttributes{Locale: "de-DE"}}},
+				Links: asc.Links{Next: "https://api.appstoreconnect.apple.com/v1/appStoreVersions/version-id/appStoreVersionLocalizations?cursor=page-2"},
+			},
+			{Data: []asc.Resource[asc.AppStoreVersionLocalizationAttributes]{{
+				ID: "existing-loc",
+				Attributes: asc.AppStoreVersionLocalizationAttributes{
+					Locale:      "en-US",
+					Description: "Existing description",
+				},
+			}}},
+		},
+	}
+	client.onGet = func(ctx context.Context, call int) {
+		deadline, ok := ctx.Deadline()
+		if !ok || time.Until(deadline) < 100*time.Millisecond {
+			t.Fatalf("page %d did not receive a fresh timeout: %s", call, time.Until(deadline))
+		}
+		if call == 1 {
+			time.Sleep(75 * time.Millisecond)
+		}
+	}
+
+	results, err := UploadVersionLocalizations(context.Background(), client, "version-id", map[string]map[string]string{
+		"en-US": {"description": "Existing description"},
+	}, false)
+	if err != nil {
+		t.Fatalf("UploadVersionLocalizations() error: %v", err)
+	}
+	if client.getCalls != 2 || len(client.updateCalls) != 0 || len(client.createCalls) != 0 {
+		t.Fatalf("expected two-page skip without mutation, gets=%d creates=%d updates=%d", client.getCalls, len(client.createCalls), len(client.updateCalls))
+	}
+	if len(results) != 1 || results[0].Action != "skip" || results[0].LocalizationID != "existing-loc" {
+		t.Fatalf("unexpected results: %+v", results)
+	}
+}
+
 func TestUploadAppInfoLocalizations_SkipsExactExistingValues(t *testing.T) {
 	client := &stubAppInfoLocalizationClient{getResp: &asc.AppInfoLocalizationsResponse{Data: []asc.Resource[asc.AppInfoLocalizationAttributes]{
 		{ID: "loc-id", Attributes: asc.AppInfoLocalizationAttributes{Locale: "en-US", Name: "Existing", Subtitle: "Subtitle"}},
@@ -157,6 +216,178 @@ func TestUploadAppInfoLocalizations_SkipsExactExistingValues(t *testing.T) {
 	}, false)
 	if err != nil || len(results) != 1 || results[0].Action != "skip" || len(client.updateCalls) != 0 {
 		t.Fatalf("expected exact app-info skip, results=%+v updates=%d err=%v", results, len(client.updateCalls), err)
+	}
+}
+
+func TestUploadAppInfoLocalizations_SkipsExactExistingValuesOnSecondPage(t *testing.T) {
+	client := &stubAppInfoLocalizationClient{getResps: []*asc.AppInfoLocalizationsResponse{
+		{
+			Data:  []asc.Resource[asc.AppInfoLocalizationAttributes]{{ID: "first-page", Attributes: asc.AppInfoLocalizationAttributes{Locale: "de-DE"}}},
+			Links: asc.Links{Next: "https://api.appstoreconnect.apple.com/v1/appInfos/app-info-id/appInfoLocalizations?cursor=page-2"},
+		},
+		{Data: []asc.Resource[asc.AppInfoLocalizationAttributes]{{
+			ID:         "loc-id",
+			Attributes: asc.AppInfoLocalizationAttributes{Locale: "en-US", Name: "Existing", Subtitle: "Subtitle"},
+		}}},
+	}}
+	results, err := UploadAppInfoLocalizations(context.Background(), client, "app-info-id", map[string]map[string]string{
+		"en-US": {"name": "Existing", "subtitle": "Subtitle"},
+	}, false)
+	if err != nil || client.getCalls != 2 || len(results) != 1 || results[0].Action != "skip" || len(client.updateCalls) != 0 || len(client.createCalls) != 0 {
+		t.Fatalf("expected page-two app-info skip, results=%+v gets=%d creates=%d updates=%d err=%v", results, client.getCalls, len(client.createCalls), len(client.updateCalls), err)
+	}
+}
+
+func TestUploadVersionLocalizations_StopsPaginationWhenParentCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	client := &stubVersionLocalizationClient{getResps: []*asc.AppStoreVersionLocalizationsResponse{{
+		Links: asc.Links{Next: "https://api.appstoreconnect.apple.com/v1/appStoreVersions/version-id/appStoreVersionLocalizations?cursor=page-2"},
+	}}}
+	client.onGet = func(_ context.Context, call int) {
+		if call == 1 {
+			cancel()
+		}
+	}
+
+	_, err := UploadVersionLocalizations(ctx, client, "version-id", map[string]map[string]string{
+		"en-US": {"description": "English"},
+	}, false)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected parent cancellation, got %v", err)
+	}
+	if client.getCalls != 1 || len(client.createCalls) != 0 || len(client.updateCalls) != 0 {
+		t.Fatalf("expected pagination to stop before page two, gets=%d creates=%d updates=%d", client.getCalls, len(client.createCalls), len(client.updateCalls))
+	}
+}
+
+func TestUploadAppInfoLocalizations_ReturnsSecondPageError(t *testing.T) {
+	pageErr := errors.New("page two failed")
+	client := &stubAppInfoLocalizationClient{
+		getResps: []*asc.AppInfoLocalizationsResponse{{
+			Links: asc.Links{Next: "https://api.appstoreconnect.apple.com/v1/appInfos/app-info-id/appInfoLocalizations?cursor=page-2"},
+		}},
+		getErrs: []error{nil, pageErr},
+	}
+	_, err := UploadAppInfoLocalizations(context.Background(), client, "app-info-id", map[string]map[string]string{
+		"en-US": {"name": "English"},
+	}, false)
+	if !errors.Is(err, pageErr) || !strings.Contains(err.Error(), "page 2") {
+		t.Fatalf("expected page-two error, got %v", err)
+	}
+	if client.getCalls != 2 || len(client.createCalls) != 0 || len(client.updateCalls) != 0 {
+		t.Fatalf("expected pagination error before mutation, gets=%d creates=%d updates=%d", client.getCalls, len(client.createCalls), len(client.updateCalls))
+	}
+}
+
+func TestUploadVersionLocalizations_RejectsNilPaginationPage(t *testing.T) {
+	tests := []struct {
+		name      string
+		responses []*asc.AppStoreVersionLocalizationsResponse
+		wantReads int
+	}{
+		{name: "first page", responses: []*asc.AppStoreVersionLocalizationsResponse{nil}, wantReads: 1},
+		{
+			name: "later page",
+			responses: []*asc.AppStoreVersionLocalizationsResponse{
+				{Links: asc.Links{Next: "https://api.appstoreconnect.apple.com/v1/appStoreVersions/version-id/appStoreVersionLocalizations?cursor=page-2"}},
+				nil,
+			},
+			wantReads: 2,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client := &stubVersionLocalizationClient{getResps: test.responses}
+			_, err := UploadVersionLocalizations(context.Background(), client, "version-id", map[string]map[string]string{
+				"en-US": {"description": "English"},
+			}, false)
+			if err == nil || !strings.Contains(err.Error(), "empty version localization response") {
+				t.Fatalf("expected empty page error, got %v", err)
+			}
+			if client.getCalls != test.wantReads || len(client.createCalls) != 0 || len(client.updateCalls) != 0 {
+				t.Fatalf("expected no mutation after empty page, gets=%d creates=%d updates=%d", client.getCalls, len(client.createCalls), len(client.updateCalls))
+			}
+		})
+	}
+}
+
+func TestUploadAppInfoLocalizations_RejectsNilPaginationPage(t *testing.T) {
+	tests := []struct {
+		name      string
+		responses []*asc.AppInfoLocalizationsResponse
+		wantReads int
+	}{
+		{name: "first page", responses: []*asc.AppInfoLocalizationsResponse{nil}, wantReads: 1},
+		{
+			name: "later page",
+			responses: []*asc.AppInfoLocalizationsResponse{
+				{Links: asc.Links{Next: "https://api.appstoreconnect.apple.com/v1/appInfos/app-info-id/appInfoLocalizations?cursor=page-2"}},
+				nil,
+			},
+			wantReads: 2,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client := &stubAppInfoLocalizationClient{getResps: test.responses}
+			_, err := UploadAppInfoLocalizations(context.Background(), client, "app-info-id", map[string]map[string]string{
+				"en-US": {"name": "English"},
+			}, false)
+			if err == nil || !strings.Contains(err.Error(), "empty app-info localization response") {
+				t.Fatalf("expected empty page error, got %v", err)
+			}
+			if client.getCalls != test.wantReads || len(client.createCalls) != 0 || len(client.updateCalls) != 0 {
+				t.Fatalf("expected no mutation after empty page, gets=%d creates=%d updates=%d", client.getCalls, len(client.createCalls), len(client.updateCalls))
+			}
+		})
+	}
+}
+
+func TestUploadVersionLocalizations_ReconcilesAmbiguousCreateOnSecondReadbackPage(t *testing.T) {
+	t.Setenv("ASC_MAX_RETRIES", "0")
+	client := &stubVersionLocalizationClient{
+		getResps: []*asc.AppStoreVersionLocalizationsResponse{
+			{Data: []asc.Resource[asc.AppStoreVersionLocalizationAttributes]{}},
+			{
+				Data:  []asc.Resource[asc.AppStoreVersionLocalizationAttributes]{{ID: "first-page", Attributes: asc.AppStoreVersionLocalizationAttributes{Locale: "de-DE"}}},
+				Links: asc.Links{Next: "https://api.appstoreconnect.apple.com/v1/appStoreVersions/version-id/appStoreVersionLocalizations?cursor=page-2"},
+			},
+			{Data: []asc.Resource[asc.AppStoreVersionLocalizationAttributes]{{
+				ID:         "created-loc",
+				Attributes: asc.AppStoreVersionLocalizationAttributes{Locale: "fr-FR", Description: "French"},
+			}}},
+		},
+		createErrs: []error{&asc.RetryableError{Err: errors.New("ambiguous create")}},
+	}
+	results, err := UploadVersionLocalizations(context.Background(), client, "version-id", map[string]map[string]string{
+		"fr-FR": {"description": "French"},
+	}, false)
+	if err != nil || len(results) != 1 || results[0].Action != "reconcile" || len(client.createCalls) != 1 || client.getCalls != 3 {
+		t.Fatalf("unexpected page-two version recovery: results=%+v creates=%d reads=%d err=%v", results, len(client.createCalls), client.getCalls, err)
+	}
+}
+
+func TestUploadAppInfoLocalizations_ReconcilesAmbiguousCreateOnSecondReadbackPage(t *testing.T) {
+	t.Setenv("ASC_MAX_RETRIES", "0")
+	client := &stubAppInfoLocalizationClient{
+		getResps: []*asc.AppInfoLocalizationsResponse{
+			{Data: []asc.Resource[asc.AppInfoLocalizationAttributes]{}},
+			{
+				Data:  []asc.Resource[asc.AppInfoLocalizationAttributes]{{ID: "first-page", Attributes: asc.AppInfoLocalizationAttributes{Locale: "de-DE"}}},
+				Links: asc.Links{Next: "https://api.appstoreconnect.apple.com/v1/appInfos/app-info-id/appInfoLocalizations?cursor=page-2"},
+			},
+			{Data: []asc.Resource[asc.AppInfoLocalizationAttributes]{{
+				ID:         "created-id",
+				Attributes: asc.AppInfoLocalizationAttributes{Locale: "fr-FR", Name: "French"},
+			}}},
+		},
+		createErrs: []error{&asc.RetryableError{Err: errors.New("ambiguous create")}},
+	}
+	results, err := UploadAppInfoLocalizations(context.Background(), client, "app-info-id", map[string]map[string]string{
+		"fr-FR": {"name": "French"},
+	}, false)
+	if err != nil || len(results) != 1 || results[0].Action != "reconcile" || len(client.createCalls) != 1 || client.getCalls != 3 {
+		t.Fatalf("unexpected page-two app-info recovery: results=%+v creates=%d reads=%d err=%v", results, len(client.createCalls), client.getCalls, err)
 	}
 }
 

@@ -411,15 +411,13 @@ func UploadVersionLocalizationsWithWarnings(ctx context.Context, client versionL
 // UploadPrevalidatedVersionLocalizationsWithWarnings uploads version localizations
 // after the caller has already validated the input value set.
 func UploadPrevalidatedVersionLocalizationsWithWarnings(ctx context.Context, client versionLocalizationClient, versionID string, valuesByLocale map[string]map[string]string, dryRun bool, submitOpts SubmitReadinessOptions) ([]asc.LocalizationUploadLocaleResult, []SubmitReadinessCreateWarning, error) {
-	existing, err := RetryReadWithFreshTimeout(ctx, func(requestCtx context.Context) (*asc.AppStoreVersionLocalizationsResponse, error) {
-		return client.GetAppStoreVersionLocalizations(requestCtx, versionID, asc.WithAppStoreVersionLocalizationsLimit(200))
-	})
+	existing, err := fetchAllVersionLocalizations(ctx, client, versionID)
 	if err != nil {
 		return nil, nil, err
 	}
-	existingByLocale := make(map[string]string, len(existing.Data))
-	existingItems := make(map[string]asc.Resource[asc.AppStoreVersionLocalizationAttributes], len(existing.Data))
-	for _, item := range existing.Data {
+	existingByLocale := make(map[string]string, len(existing))
+	existingItems := make(map[string]asc.Resource[asc.AppStoreVersionLocalizationAttributes], len(existing))
+	for _, item := range existing {
 		if strings.TrimSpace(item.Attributes.Locale) == "" {
 			continue
 		}
@@ -517,15 +515,13 @@ func UploadAppInfoLocalizations(ctx context.Context, client appInfoLocalizationC
 		return nil, err
 	}
 
-	existing, err := RetryReadWithFreshTimeout(ctx, func(requestCtx context.Context) (*asc.AppInfoLocalizationsResponse, error) {
-		return client.GetAppInfoLocalizations(requestCtx, appInfoID, asc.WithAppInfoLocalizationsLimit(200))
-	})
+	existing, err := fetchAllAppInfoLocalizations(ctx, client, appInfoID)
 	if err != nil {
 		return nil, err
 	}
-	existingByLocale := make(map[string]string, len(existing.Data))
-	existingItems := make(map[string]asc.Resource[asc.AppInfoLocalizationAttributes], len(existing.Data))
-	for _, item := range existing.Data {
+	existingByLocale := make(map[string]string, len(existing))
+	existingItems := make(map[string]asc.Resource[asc.AppInfoLocalizationAttributes], len(existing))
+	for _, item := range existing {
 		if strings.TrimSpace(item.Attributes.Locale) == "" {
 			continue
 		}
@@ -604,13 +600,11 @@ func runLocalizationMutationWithReadback(
 }
 
 func findMatchingVersionLocalization(ctx context.Context, client versionLocalizationClient, versionID, locale string, values map[string]string) (string, bool, error) {
-	resp, err := RetryReadWithFreshTimeout(ctx, func(requestCtx context.Context) (*asc.AppStoreVersionLocalizationsResponse, error) {
-		return client.GetAppStoreVersionLocalizations(requestCtx, versionID, asc.WithAppStoreVersionLocalizationsLimit(200))
-	})
+	items, err := fetchAllVersionLocalizations(ctx, client, versionID)
 	if err != nil {
 		return "", false, err
 	}
-	for _, item := range resp.Data {
+	for _, item := range items {
 		if item.Attributes.Locale == locale && versionLocalizationMatchesValues(item.Attributes, values) {
 			return item.ID, true, nil
 		}
@@ -619,18 +613,88 @@ func findMatchingVersionLocalization(ctx context.Context, client versionLocaliza
 }
 
 func findMatchingAppInfoLocalization(ctx context.Context, client appInfoLocalizationClient, appInfoID, locale string, values map[string]string) (string, bool, error) {
-	resp, err := RetryReadWithFreshTimeout(ctx, func(requestCtx context.Context) (*asc.AppInfoLocalizationsResponse, error) {
-		return client.GetAppInfoLocalizations(requestCtx, appInfoID, asc.WithAppInfoLocalizationsLimit(200))
-	})
+	items, err := fetchAllAppInfoLocalizations(ctx, client, appInfoID)
 	if err != nil {
 		return "", false, err
 	}
-	for _, item := range resp.Data {
+	for _, item := range items {
 		if item.Attributes.Locale == locale && appInfoLocalizationMatchesValues(item.Attributes, values) {
 			return item.ID, true, nil
 		}
 	}
 	return "", false, nil
+}
+
+func fetchAllVersionLocalizations(ctx context.Context, client versionLocalizationClient, versionID string) ([]asc.Resource[asc.AppStoreVersionLocalizationAttributes], error) {
+	firstPage, err := RetryReadWithFreshTimeout(ctx, func(requestCtx context.Context) (*asc.AppStoreVersionLocalizationsResponse, error) {
+		return client.GetAppStoreVersionLocalizations(requestCtx, versionID, asc.WithAppStoreVersionLocalizationsLimit(200))
+	})
+	if err != nil {
+		return nil, err
+	}
+	if firstPage == nil {
+		return nil, fmt.Errorf("empty version localization response")
+	}
+	if strings.TrimSpace(firstPage.Links.Next) == "" {
+		return firstPage.Data, nil
+	}
+
+	paginated, err := asc.PaginateAll(ctx, firstPage, func(pageCtx context.Context, nextURL string) (asc.PaginatedResponse, error) {
+		nextPage, err := RetryReadWithFreshTimeout(pageCtx, func(requestCtx context.Context) (*asc.AppStoreVersionLocalizationsResponse, error) {
+			return client.GetAppStoreVersionLocalizations(requestCtx, versionID, asc.WithAppStoreVersionLocalizationsNextURL(nextURL))
+		})
+		if err != nil {
+			return nil, err
+		}
+		if nextPage == nil {
+			return nil, fmt.Errorf("empty version localization response")
+		}
+		return nextPage, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	allPages, ok := paginated.(*asc.AppStoreVersionLocalizationsResponse)
+	if !ok {
+		return nil, fmt.Errorf("unexpected version localization pagination response type")
+	}
+	return allPages.Data, nil
+}
+
+func fetchAllAppInfoLocalizations(ctx context.Context, client appInfoLocalizationClient, appInfoID string) ([]asc.Resource[asc.AppInfoLocalizationAttributes], error) {
+	firstPage, err := RetryReadWithFreshTimeout(ctx, func(requestCtx context.Context) (*asc.AppInfoLocalizationsResponse, error) {
+		return client.GetAppInfoLocalizations(requestCtx, appInfoID, asc.WithAppInfoLocalizationsLimit(200))
+	})
+	if err != nil {
+		return nil, err
+	}
+	if firstPage == nil {
+		return nil, fmt.Errorf("empty app-info localization response")
+	}
+	if strings.TrimSpace(firstPage.Links.Next) == "" {
+		return firstPage.Data, nil
+	}
+
+	paginated, err := asc.PaginateAll(ctx, firstPage, func(pageCtx context.Context, nextURL string) (asc.PaginatedResponse, error) {
+		nextPage, err := RetryReadWithFreshTimeout(pageCtx, func(requestCtx context.Context) (*asc.AppInfoLocalizationsResponse, error) {
+			return client.GetAppInfoLocalizations(requestCtx, appInfoID, asc.WithAppInfoLocalizationsNextURL(nextURL))
+		})
+		if err != nil {
+			return nil, err
+		}
+		if nextPage == nil {
+			return nil, fmt.Errorf("empty app-info localization response")
+		}
+		return nextPage, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	allPages, ok := paginated.(*asc.AppInfoLocalizationsResponse)
+	if !ok {
+		return nil, fmt.Errorf("unexpected app-info localization pagination response type")
+	}
+	return allPages.Data, nil
 }
 
 func versionLocalizationMatchesValues(attrs asc.AppStoreVersionLocalizationAttributes, values map[string]string) bool {
