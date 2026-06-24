@@ -44,6 +44,19 @@ func TestBuildSubscriptionPricesQueryPlanType(t *testing.T) {
 	}
 }
 
+func TestBuildSubscriptionPricesQueryFields(t *testing.T) {
+	query := &subscriptionPricesQuery{}
+	WithSubscriptionPricesFields([]string{"startDate", "preserved", "planType", "territory", "subscriptionPricePoint"})(query)
+
+	values, err := url.ParseQuery(buildSubscriptionPricesQuery(query))
+	if err != nil {
+		t.Fatalf("parse query: %v", err)
+	}
+	if got := values.Get("fields[subscriptionPrices]"); got != "startDate,preserved,planType,territory,subscriptionPricePoint" {
+		t.Fatalf("unexpected subscription price fields: %q", got)
+	}
+}
+
 func TestBuildSubscriptionPricesQueryRejectsEmptyPlanType(t *testing.T) {
 	query := &subscriptionPricesQuery{}
 	WithSubscriptionPricesPlanType("")(query)

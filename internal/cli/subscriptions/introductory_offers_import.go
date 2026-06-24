@@ -172,8 +172,7 @@ Examples:
 			if err != nil {
 				return err
 			}
-			operationNow := time.Now().UTC()
-			stateIndex, err := fetchSubscriptionIntroductoryOfferImportState(ctx, client, summary.SubscriptionID, operationNow)
+			stateIndex, err := fetchSubscriptionIntroductoryOfferImportState(ctx, client, summary.SubscriptionID)
 			if err != nil {
 				return fmt.Errorf("subscriptions introductory-offers import: fetch existing offers: %w", err)
 			}
@@ -198,7 +197,7 @@ Examples:
 					status, rowErr = runReconciledMutation(
 						ctx,
 						func(readbackCtx context.Context) (bool, error) {
-							refreshed, err := fetchSubscriptionIntroductoryOfferImportState(readbackCtx, client, summary.SubscriptionID, operationNow)
+							refreshed, err := fetchSubscriptionIntroductoryOfferImportState(readbackCtx, client, summary.SubscriptionID)
 							if err != nil {
 								return false, err
 							}
@@ -393,7 +392,7 @@ func appendSubscriptionIntroductoryOfferImportFailure(summary *subscriptionIntro
 	})
 }
 
-func fetchSubscriptionIntroductoryOfferImportState(ctx context.Context, client *asc.Client, subscriptionID string, now time.Time) (*subscriptionIntroductoryOfferImportStateIndex, error) {
+func fetchSubscriptionIntroductoryOfferImportState(ctx context.Context, client *asc.Client, subscriptionID string) (*subscriptionIntroductoryOfferImportStateIndex, error) {
 	query := url.Values{
 		"fields[subscriptionIntroductoryOffers]": []string{"startDate,endDate,duration,offerMode,numberOfPeriods,targetSubscriptionPlanType,territory,subscriptionPricePoint"},
 		"include":                                []string{"territory,subscriptionPricePoint"},
@@ -424,7 +423,7 @@ func fetchSubscriptionIntroductoryOfferImportState(ctx context.Context, client *
 	if err != nil {
 		return nil, err
 	}
-	index := &subscriptionIntroductoryOfferImportStateIndex{now: now}
+	index := &subscriptionIntroductoryOfferImportStateIndex{}
 	err = asc.PaginateEach(ctx, firstPage, func(_ context.Context, nextURL string) (asc.PaginatedResponse, error) {
 		return fetchPage(nextURL)
 	}, func(page asc.PaginatedResponse) error {
@@ -450,6 +449,7 @@ func fetchSubscriptionIntroductoryOfferImportState(ctx context.Context, client *
 	if err != nil {
 		return nil, err
 	}
+	index.now = subscriptionImportNow()
 	return index, nil
 }
 

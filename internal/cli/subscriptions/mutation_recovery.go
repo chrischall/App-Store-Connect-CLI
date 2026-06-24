@@ -11,6 +11,8 @@ import (
 
 type reconciledMutationStatus string
 
+var subscriptionImportNow = func() time.Time { return time.Now().UTC() }
+
 const (
 	reconciledMutationCreated    reconciledMutationStatus = "created"
 	reconciledMutationSkipped    reconciledMutationStatus = "skipped"

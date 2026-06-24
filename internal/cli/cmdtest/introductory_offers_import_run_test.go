@@ -782,6 +782,7 @@ func TestSubscriptionsIntroductoryOffersImport_RetriesTimedOutInitialStateRead(t
 	t.Setenv("ASC_MAX_RETRIES", "1")
 	t.Setenv("ASC_BASE_DELAY", "1ms")
 	t.Setenv("ASC_MAX_DELAY", "1ms")
+	t.Setenv("ASC_TIMEOUT", "50ms")
 
 	originalTransport := http.DefaultTransport
 	t.Cleanup(func() { http.DefaultTransport = originalTransport })
@@ -793,7 +794,11 @@ func TestSubscriptionsIntroductoryOffersImport_RetriesTimedOutInitialStateRead(t
 		assertIntroductoryOfferImportStateQuery(t, req)
 		readCount++
 		if readCount == 1 {
-			return nil, context.DeadlineExceeded
+			<-req.Context().Done()
+			return nil, req.Context().Err()
+		}
+		if err := req.Context().Err(); err != nil {
+			t.Fatalf("expected fresh request context, got %v", err)
 		}
 		body := `{"data":[{"type":"subscriptionIntroductoryOffers","id":"offer-existing","attributes":{"startDate":"2020-01-01","duration":"ONE_WEEK","offerMode":"FREE_TRIAL","numberOfPeriods":1,"targetSubscriptionPlanType":"UPFRONT"},"relationships":{"territory":{"data":{"type":"territories","id":"USA"}}}}],"links":{}}`
 		return jsonHTTPResponse(http.StatusOK, body), nil
