@@ -50,6 +50,17 @@ func runReconciledMutation(
 		if err := sleepWithContext(ctx, reconciledMutationRetryDelay(retryOpts, retry, mutationErr)); err != nil {
 			return "", err
 		}
+
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		exists, readErr = readback(ctx)
+		if readErr != nil {
+			return "", fmt.Errorf("mutation and pre-retry readback failed: %w", errors.Join(mutationErr, readErr))
+		}
+		if exists {
+			return reconciledMutationReconciled, nil
+		}
 	}
 }
 

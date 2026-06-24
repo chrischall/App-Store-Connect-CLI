@@ -740,7 +740,7 @@ func TestSubscriptionsPricingEqualize_RetriesInitialPriceAfterNegativeReadback(t
 	if postCount != 1 {
 		t.Fatalf("expected one follow-up POST, got %d", postCount)
 	}
-	if strings.Join(steps, ",") != "availability,pricing-territories,territories,patch,verify,patch,price" {
+	if strings.Join(steps, ",") != "availability,pricing-territories,territories,patch,verify,verify,patch,price" {
 		t.Fatalf("expected availability validation before pricing, got %v", steps)
 	}
 

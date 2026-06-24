@@ -33,7 +33,7 @@ func TestRunReconciledMutationRetriesOnlyAfterNegativeReadback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runReconciledMutation() error: %v", err)
 	}
-	if status != reconciledMutationCreated || mutations != 2 || readbacks != 1 {
+	if status != reconciledMutationCreated || mutations != 2 || readbacks != 2 {
 		t.Fatalf("unexpected recovery: status=%q mutations=%d readbacks=%d", status, mutations, readbacks)
 	}
 }
@@ -62,7 +62,33 @@ func TestRunReconciledMutationRetriesChildDeadlineAfterNegativeReadback(t *testi
 	if err != nil {
 		t.Fatalf("runReconciledMutation() error: %v", err)
 	}
-	if status != reconciledMutationCreated || mutations != 2 || readbacks != 1 {
+	if status != reconciledMutationCreated || mutations != 2 || readbacks != 2 {
+		t.Fatalf("unexpected recovery: status=%q mutations=%d readbacks=%d", status, mutations, readbacks)
+	}
+}
+
+func TestRunReconciledMutationReadsAgainBeforeReplay(t *testing.T) {
+	t.Setenv("ASC_MAX_RETRIES", "1")
+	t.Setenv("ASC_BASE_DELAY", "1ms")
+	t.Setenv("ASC_MAX_DELAY", "1ms")
+
+	mutations := 0
+	readbacks := 0
+	status, err := runReconciledMutation(
+		context.Background(),
+		func(context.Context) (bool, error) {
+			readbacks++
+			return readbacks == 2, nil
+		},
+		func(context.Context) error {
+			mutations++
+			return &asc.RetryableError{Err: errors.New("ambiguous failure")}
+		},
+	)
+	if err != nil {
+		t.Fatalf("runReconciledMutation() error: %v", err)
+	}
+	if status != reconciledMutationReconciled || mutations != 1 || readbacks != 2 {
 		t.Fatalf("unexpected recovery: status=%q mutations=%d readbacks=%d", status, mutations, readbacks)
 	}
 }
