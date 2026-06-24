@@ -117,3 +117,39 @@ func TestResolveSubscriptionPriceImportTerritoryID_RejectsTerritoriesOutsideASCS
 		})
 	}
 }
+
+func TestWriteSubscriptionPriceImportFailureArtifact_ReturnsWriteError(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.WriteFile(".asc", []byte("not a directory"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error: %v", err)
+	}
+
+	_, err := writeSubscriptionPriceImportFailureArtifact(&subscriptionPriceImportSummary{
+		Failed:  1,
+		Results: []subscriptionPriceImportResultItem{{Status: "failed"}},
+	})
+	if err == nil {
+		t.Fatal("expected write error, got nil")
+	}
+}
+
+func TestSubscriptionPriceImportStateMatchesIgnoresUnspecifiedPreservedValue(t *testing.T) {
+	index := &subscriptionPriceImportStateIndex{
+		states: []subscriptionPriceImportState{{
+			territoryID:          "USA",
+			pricePointID:         "pp-usa",
+			startDate:            "2026-07-01",
+			preserveCurrentPrice: true,
+		}},
+	}
+	target := subscriptionPriceImportResolvedRow{
+		territoryID:  "USA",
+		pricePointID: "pp-usa",
+		startDate:    "2026-07-01",
+		preserveSet:  false,
+	}
+
+	if !index.matches(target) {
+		t.Fatal("expected omitted preserved value to match either remote state")
+	}
+}
