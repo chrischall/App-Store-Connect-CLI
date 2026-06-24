@@ -513,13 +513,20 @@ func (c *Client) GetSubscriptionAvailabilityAvailableTerritories(ctx context.Con
 }
 
 // GetSubscriptionAppStoreReviewScreenshotForSubscription retrieves the review screenshot for a subscription.
-func (c *Client) GetSubscriptionAppStoreReviewScreenshotForSubscription(ctx context.Context, subID string) (*SubscriptionAppStoreReviewScreenshotResponse, error) {
+func (c *Client) GetSubscriptionAppStoreReviewScreenshotForSubscription(ctx context.Context, subID string, opts ...SubscriptionAppStoreReviewScreenshotOption) (*SubscriptionAppStoreReviewScreenshotResponse, error) {
 	subID = strings.TrimSpace(subID)
 	if subID == "" {
 		return nil, fmt.Errorf("subscription ID is required")
 	}
 
+	query := &subscriptionAppStoreReviewScreenshotQuery{}
+	for _, opt := range opts {
+		opt(query)
+	}
 	path := fmt.Sprintf("/v1/subscriptions/%s/appStoreReviewScreenshot", subID)
+	if queryString := buildSubscriptionAppStoreReviewScreenshotQuery(query); queryString != "" {
+		path += "?" + queryString
+	}
 	data, err := c.do(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return nil, err

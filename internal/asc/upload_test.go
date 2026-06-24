@@ -3,6 +3,7 @@ package asc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -124,7 +125,7 @@ func TestExecuteUploadOperations_FailsOnHTTPError(t *testing.T) {
 		},
 	}
 
-	err := ExecuteUploadOperations(context.Background(), filePath, ops, WithUploadConcurrency(1))
+	err := ExecuteUploadOperations(context.Background(), filePath, ops, WithUploadConcurrency(1), withUploadRetryOptions(0))
 	if err == nil {
 		t.Fatalf("expected error from ExecuteUploadOperations")
 	}
@@ -149,6 +150,202 @@ func TestExecuteUploadOperations_FailsOnInvalidRange(t *testing.T) {
 	err := ExecuteUploadOperations(context.Background(), filePath, ops)
 	if err == nil {
 		t.Fatalf("expected range validation error")
+	}
+}
+
+func TestExecuteUploadOperations_PreCanceledContextDoesNotSucceed(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "app.ipa")
+	if err := os.WriteFile(filePath, []byte("abc"), 0o600); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	var requests int32
+	client := &http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		atomic.AddInt32(&requests, 1)
+		return nil, errors.New("unexpected upload request")
+	})}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := ExecuteUploadOperations(ctx, filePath, []UploadOperation{{
+		Method: http.MethodPut,
+		URL:    "https://example.test/upload",
+		Length: 3,
+	}}, WithUploadHTTPClient(client))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context canceled, got %v", err)
+	}
+	if got := atomic.LoadInt32(&requests); got != 0 {
+		t.Fatalf("expected no upload requests, got %d", got)
+	}
+}
+
+func TestExecuteUploadOperations_UsesFreshTimeoutForEachOperation(t *testing.T) {
+	t.Setenv("ASC_UPLOAD_TIMEOUT", "150ms")
+	t.Setenv("ASC_MAX_RETRIES", "0")
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "app.ipa")
+	if err := os.WriteFile(filePath, []byte("abcdef"), 0o600); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	var requests int32
+	client := &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		request := atomic.AddInt32(&requests, 1)
+		deadline, ok := req.Context().Deadline()
+		if !ok {
+			return nil, errors.New("upload request has no deadline")
+		}
+		if remaining := time.Until(deadline); remaining < 100*time.Millisecond {
+			return nil, fmt.Errorf("upload request %d inherited stale deadline: %s", request, remaining)
+		}
+		if request == 1 {
+			select {
+			case <-time.After(75 * time.Millisecond):
+			case <-req.Context().Done():
+				return nil, req.Context().Err()
+			}
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Body:       io.NopCloser(strings.NewReader("")),
+			Header:     make(http.Header),
+		}, nil
+	})}
+
+	err := ExecuteUploadOperations(context.Background(), filePath, []UploadOperation{
+		{Method: http.MethodPut, URL: "https://example.test/part-1", Length: 3, Offset: 0},
+		{Method: http.MethodPut, URL: "https://example.test/part-2", Length: 3, Offset: 3},
+	}, WithUploadConcurrency(1), WithUploadHTTPClient(client), withUploadRetryOptions(0))
+	if err != nil {
+		t.Fatalf("ExecuteUploadOperations() error: %v", err)
+	}
+	if got := atomic.LoadInt32(&requests); got != 2 {
+		t.Fatalf("expected two upload requests, got %d", got)
+	}
+}
+
+func TestExecuteUploadOperations_RetriesPUTAfterAttemptTimeout(t *testing.T) {
+	t.Setenv("ASC_UPLOAD_TIMEOUT", "20ms")
+	t.Setenv("ASC_MAX_RETRIES", "1")
+	t.Setenv("ASC_BASE_DELAY", "1ms")
+	t.Setenv("ASC_MAX_DELAY", "1ms")
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "app.ipa")
+	if err := os.WriteFile(filePath, []byte("abc"), 0o600); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	var requests int32
+	client := &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		if atomic.AddInt32(&requests, 1) == 1 {
+			<-req.Context().Done()
+			return nil, req.Context().Err()
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Body:       io.NopCloser(strings.NewReader("")),
+			Header:     make(http.Header),
+		}, nil
+	})}
+
+	err := ExecuteUploadOperations(context.Background(), filePath, []UploadOperation{{
+		Method: http.MethodPut,
+		URL:    "https://example.test/upload",
+		Length: 3,
+	}}, WithUploadHTTPClient(client), withUploadRetryOptions(1))
+	if err != nil {
+		t.Fatalf("ExecuteUploadOperations() error: %v", err)
+	}
+	if got := atomic.LoadInt32(&requests); got != 2 {
+		t.Fatalf("expected timed-out PUT to retry once, got %d requests", got)
+	}
+}
+
+func TestExecuteUploadOperations_RetriesPUTTransientStatuses(t *testing.T) {
+	statuses := []int{
+		http.StatusRequestTimeout,
+		http.StatusTooManyRequests,
+		http.StatusInternalServerError,
+		http.StatusBadGateway,
+		http.StatusServiceUnavailable,
+		http.StatusGatewayTimeout,
+	}
+	for _, status := range statuses {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			t.Setenv("ASC_MAX_RETRIES", "1")
+			t.Setenv("ASC_BASE_DELAY", "1ms")
+			t.Setenv("ASC_MAX_DELAY", "1ms")
+			dir := t.TempDir()
+			filePath := filepath.Join(dir, "app.ipa")
+			if err := os.WriteFile(filePath, []byte("abc"), 0o600); err != nil {
+				t.Fatalf("write file: %v", err)
+			}
+
+			requests := 0
+			client := &http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+				requests++
+				responseStatus := status
+				if requests == 2 {
+					responseStatus = http.StatusOK
+				}
+				return &http.Response{
+					StatusCode: responseStatus,
+					Status:     fmt.Sprintf("%d %s", responseStatus, http.StatusText(responseStatus)),
+					Body:       io.NopCloser(strings.NewReader("")),
+					Header:     make(http.Header),
+				}, nil
+			})}
+
+			err := ExecuteUploadOperations(context.Background(), filePath, []UploadOperation{{
+				Method: http.MethodPut,
+				URL:    "https://example.test/upload",
+				Length: 3,
+			}}, WithUploadHTTPClient(client), withUploadRetryOptions(1))
+			if err != nil {
+				t.Fatalf("ExecuteUploadOperations() error: %v", err)
+			}
+			if requests != 2 {
+				t.Fatalf("expected one retry for status %d, got %d requests", status, requests)
+			}
+		})
+	}
+}
+
+func TestExecuteUploadOperations_DoesNotReplayNonPUT(t *testing.T) {
+	t.Setenv("ASC_MAX_RETRIES", "3")
+	t.Setenv("ASC_BASE_DELAY", "1ms")
+	t.Setenv("ASC_MAX_DELAY", "1ms")
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "app.ipa")
+	if err := os.WriteFile(filePath, []byte("abc"), 0o600); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	requests := 0
+	client := &http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		requests++
+		return &http.Response{
+			StatusCode: http.StatusServiceUnavailable,
+			Status:     "503 Service Unavailable",
+			Body:       io.NopCloser(strings.NewReader("")),
+			Header:     make(http.Header),
+		}, nil
+	})}
+
+	err := ExecuteUploadOperations(context.Background(), filePath, []UploadOperation{{
+		Method: http.MethodPost,
+		URL:    "https://example.test/upload",
+		Length: 3,
+	}}, WithUploadHTTPClient(client))
+	if err == nil {
+		t.Fatal("expected non-PUT upload error")
+	}
+	if requests != 1 {
+		t.Fatalf("expected non-PUT operation not to replay, got %d requests", requests)
 	}
 }
 
@@ -270,6 +467,16 @@ type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 func (fn roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return fn(req)
+}
+
+func withUploadRetryOptions(maxRetries int) UploadOption {
+	return func(opts *UploadOptions) {
+		opts.RetryOpts = RetryOptions{
+			MaxRetries: maxRetries,
+			BaseDelay:  time.Millisecond,
+			MaxDelay:   time.Millisecond,
+		}
+	}
 }
 
 func TestComputeFileChecksum_MD5(t *testing.T) {

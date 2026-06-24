@@ -38,6 +38,9 @@ type SubscriptionPricesOption func(*subscriptionPricesQuery)
 // SubscriptionGroupLocalizationsOption is a functional option for subscription group localization list endpoints.
 type SubscriptionGroupLocalizationsOption func(*subscriptionGroupLocalizationsQuery)
 
+// SubscriptionAppStoreReviewScreenshotOption configures the subscription screenshot relationship endpoint.
+type SubscriptionAppStoreReviewScreenshotOption func(*subscriptionAppStoreReviewScreenshotQuery)
+
 type subscriptionLocalizationsQuery struct {
 	listQuery
 	fields []string
@@ -92,6 +95,10 @@ type subscriptionPricesQuery struct {
 
 type subscriptionGroupLocalizationsQuery struct {
 	listQuery
+	fields []string
+}
+
+type subscriptionAppStoreReviewScreenshotQuery struct {
 	fields []string
 }
 
@@ -390,6 +397,13 @@ func WithSubscriptionGroupLocalizationsFields(fields []string) SubscriptionGroup
 	}
 }
 
+// WithSubscriptionAppStoreReviewScreenshotFields limits returned screenshot fields.
+func WithSubscriptionAppStoreReviewScreenshotFields(fields []string) SubscriptionAppStoreReviewScreenshotOption {
+	return func(q *subscriptionAppStoreReviewScreenshotQuery) {
+		q.fields = normalizeList(fields)
+	}
+}
+
 func buildSubscriptionLocalizationsQuery(query *subscriptionLocalizationsQuery) string {
 	values := url.Values{}
 	addCSV(values, "fields[subscriptionLocalizations]", query.fields)
@@ -472,5 +486,11 @@ func buildSubscriptionGroupLocalizationsQuery(query *subscriptionGroupLocalizati
 	values := url.Values{}
 	addCSV(values, "fields[subscriptionGroupLocalizations]", query.fields)
 	addLimit(values, query.limit)
+	return values.Encode()
+}
+
+func buildSubscriptionAppStoreReviewScreenshotQuery(query *subscriptionAppStoreReviewScreenshotQuery) string {
+	values := url.Values{}
+	addCSV(values, "fields[subscriptionAppStoreReviewScreenshots]", query.fields)
 	return values.Encode()
 }
