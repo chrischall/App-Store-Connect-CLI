@@ -382,15 +382,15 @@ func createSubscriptionIntroductoryOffersForAllTerritories(
 
 	var operationErr error
 	for _, territoryID := range territories {
+		if _, ok := existing[territoryID]; ok {
+			appendSubscriptionIntroductoryOfferCreateBulkSkip(summary, territoryID, "introductory offer already exists for territory")
+			continue
+		}
+
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			appendSubscriptionIntroductoryOfferCreateBulkFailure(summary, territoryID, ctxErr)
 			operationErr = ctxErr
 			break
-		}
-
-		if _, ok := existing[territoryID]; ok {
-			appendSubscriptionIntroductoryOfferCreateBulkSkip(summary, territoryID, "introductory offer already exists for territory")
-			continue
 		}
 
 		if dryRun {

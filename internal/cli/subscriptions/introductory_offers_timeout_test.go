@@ -2,6 +2,7 @@ package subscriptions
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -50,5 +51,25 @@ func TestContextWithSubscriptionIntroductoryOfferCreateTimeoutRespectsASCTimeout
 	remaining := time.Until(deadline)
 	if remaining < 44*time.Second || remaining > 46*time.Second {
 		t.Fatalf("expected create operation timeout near 45s from ASC_TIMEOUT, got %v", remaining)
+	}
+}
+
+func TestContextWithSubscriptionIntroductoryOfferCreateTimeoutRespectsASCTimeoutSeconds(t *testing.T) {
+	t.Setenv("ASC_TIMEOUT", "")
+	if err := os.Unsetenv("ASC_TIMEOUT"); err != nil {
+		t.Fatalf("unset ASC_TIMEOUT: %v", err)
+	}
+	t.Setenv("ASC_TIMEOUT_SECONDS", "45")
+
+	ctx, cancel := contextWithSubscriptionIntroductoryOfferCreateTimeout(context.Background())
+	defer cancel()
+
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("expected create operation deadline")
+	}
+	remaining := time.Until(deadline)
+	if remaining < 44*time.Second || remaining > 46*time.Second {
+		t.Fatalf("expected create operation timeout near 45s from ASC_TIMEOUT_SECONDS, got %v", remaining)
 	}
 }
