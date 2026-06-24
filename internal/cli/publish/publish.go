@@ -625,6 +625,10 @@ Examples:
 					}
 					return fmt.Errorf("publish appstore: apply metadata: %w", metadataErr)
 				}
+
+				cancel()
+				requestCtx, cancel = newPublishRequestCtx()
+				defer cancel()
 			}
 
 			resolvedBuildNumberValue := firstNonEmpty(strings.TrimSpace(buildResp.Data.Attributes.Version), buildNumberValue)

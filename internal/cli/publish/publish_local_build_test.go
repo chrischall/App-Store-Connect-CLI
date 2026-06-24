@@ -903,6 +903,7 @@ func TestPublishAppStoreMetadataDirAppliesAfterEnsureVersionBeforeAttach(t *test
 		if got := opts.ValuesByLocale["en-US"]["description"]; got != "Updated description" {
 			t.Fatalf("expected preflighted metadata values, got %+v", opts.ValuesByLocale)
 		}
+		time.Sleep(350 * time.Millisecond)
 		return nil, nil
 	}
 
@@ -915,6 +916,10 @@ func TestPublishAppStoreMetadataDirAppliesAfterEnsureVersionBeforeAttach(t *test
 			return publishCommandJSONResponse(http.StatusOK, `{"data":[{"type":"appStoreVersions","id":"version-1","attributes":{"versionString":"1.2.3","platform":"IOS"}}]}`)
 		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/version-1/build":
 			sequence = append(sequence, "lookup_build")
+			deadline, ok := req.Context().Deadline()
+			if !ok || time.Until(deadline) < 350*time.Millisecond {
+				t.Fatalf("expected fresh post-metadata stage deadline, remaining=%s", time.Until(deadline))
+			}
 			return publishCommandJSONResponse(http.StatusNotFound, `{"errors":[{"status":"404","code":"NOT_FOUND","title":"Not Found"}]}`)
 		case req.Method == http.MethodPatch && req.URL.Path == "/v1/appStoreVersions/version-1/relationships/build":
 			sequence = append(sequence, "attach_build")
