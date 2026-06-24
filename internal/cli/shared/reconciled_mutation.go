@@ -20,7 +20,8 @@ const (
 
 // RunReconciledMutation executes a mutation with a fresh request deadline. If
 // the mutation fails ambiguously, it reads state immediately and once more
-// after backoff before replaying the mutation.
+// after backoff before replaying the mutation. Readback callbacks may span
+// pagination and are responsible for fresh per-request deadlines.
 func RunReconciledMutation[T any](
 	ctx context.Context,
 	mutate func(context.Context) (T, error),
@@ -48,7 +49,7 @@ func RunReconciledMutation[T any](
 		if matches {
 			return value, ReconciledMutationRecovered, nil
 		}
-		if !mutationErrorIsTransient(ctx, mutationErr) || retry >= retryOpts.MaxRetries {
+		if !IsTransientMutationError(ctx, mutationErr) || retry >= retryOpts.MaxRetries {
 			return zero, "", mutationErr
 		}
 
@@ -66,11 +67,6 @@ func RunReconciledMutation[T any](
 	}
 }
 
-type mutationReadbackResult[T any] struct {
-	value   T
-	matches bool
-}
-
 func runMutationWithFreshTimeout[T any](ctx context.Context, mutate func(context.Context) (T, error)) (T, error) {
 	requestCtx, cancel := ContextWithTimeout(ctx)
 	defer cancel()
@@ -78,14 +74,12 @@ func runMutationWithFreshTimeout[T any](ctx context.Context, mutate func(context
 }
 
 func runMutationReadback[T any](ctx context.Context, readback func(context.Context) (T, bool, error)) (T, bool, error) {
-	result, err := RetryReadWithFreshTimeout(ctx, func(requestCtx context.Context) (mutationReadbackResult[T], error) {
-		value, matches, readErr := readback(requestCtx)
-		return mutationReadbackResult[T]{value: value, matches: matches}, readErr
-	})
-	return result.value, result.matches, err
+	return readback(ctx)
 }
 
-func mutationErrorIsTransient(parent context.Context, err error) bool {
+// IsTransientMutationError reports whether a mutation can be retried after
+// state readback while the parent operation remains healthy.
+func IsTransientMutationError(parent context.Context, err error) bool {
 	if asc.IsRetryable(err) {
 		return true
 	}

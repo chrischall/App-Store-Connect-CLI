@@ -1,10 +1,16 @@
 package publish
 
 import (
+	"context"
+	"errors"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 )
 
 func TestLoadPublishVersionMetadataValuesReadsOnlyVersionLocalizationFields(t *testing.T) {
@@ -49,6 +55,65 @@ func TestLoadPublishVersionMetadataValuesReadsOnlyVersionLocalizationFields(t *t
 	}
 	if got := values["fr-FR"]["marketingUrl"]; got != "https://example.com/fr" {
 		t.Fatalf("expected fr-FR marketingUrl, got %q", got)
+	}
+}
+
+func TestApplyPublishVersionMetadataRetainsPartialResultsAndArtifact(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("ASC_MAX_RETRIES", "0")
+	originalTransport := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+	patches := 0
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/version-1/appStoreVersionLocalizations":
+			return publishJSONResponse(http.StatusOK, `{"data":[{"type":"appStoreVersionLocalizations","id":"en-id","attributes":{"locale":"en-US","description":"Old English"}},{"type":"appStoreVersionLocalizations","id":"fr-id","attributes":{"locale":"fr-FR","description":"Old French"}}],"links":{"next":""}}`), nil
+		case req.Method == http.MethodPatch && req.URL.Path == "/v1/appStoreVersionLocalizations/en-id":
+			patches++
+			return publishJSONResponse(http.StatusOK, `{"data":{"type":"appStoreVersionLocalizations","id":"en-id","attributes":{"locale":"en-US","description":"New English","whatsNew":"English notes"}}}`), nil
+		case req.Method == http.MethodPatch && req.URL.Path == "/v1/appStoreVersionLocalizations/fr-id":
+			patches++
+			return publishJSONResponse(http.StatusBadRequest, `{"errors":[{"status":"400","code":"ENTITY_ERROR","detail":"French rejected"}]}`), nil
+		default:
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
+			return nil, nil
+		}
+	})
+	client := newPublishCommandTestClient(t)
+
+	results, err := applyPublishVersionMetadata(context.Background(), client, publishVersionMetadataOptions{
+		VersionID: "version-1",
+		Dir:       "metadata",
+		ValuesByLocale: map[string]map[string]string{
+			"en-US": {"description": "New English", "whatsNew": "English notes"},
+			"fr-FR": {"description": "New French", "whatsNew": "French notes"},
+		},
+	})
+	if err == nil || patches != 2 || len(results) != 2 {
+		t.Fatalf("expected visible partial publish result, results=%+v patches=%d err=%v", results, patches, err)
+	}
+	if !strings.Contains(err.Error(), "retry artifact: .asc/reports/localizations-upload/") {
+		t.Fatalf("expected retry artifact in publish error: %v", err)
+	}
+	artifacts, globErr := filepath.Glob(filepath.Join(".asc", "reports", "localizations-upload", "failures-*.json"))
+	if globErr != nil || len(artifacts) != 1 {
+		t.Fatalf("expected one publish artifact, paths=%v err=%v", artifacts, globErr)
+	}
+	payload, readErr := os.ReadFile(artifacts[0])
+	if readErr != nil || !strings.Contains(string(payload), `"description": "New French"`) {
+		t.Fatalf("publish artifact is not resumable: payload=%s err=%v", payload, readErr)
+	}
+	var apiErr *asc.APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected underlying API failure to remain inspectable: %T %v", err, err)
+	}
+}
+
+func publishJSONResponse(status int, body string) *http.Response {
+	return &http.Response{
+		StatusCode: status,
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
 	}
 }
 

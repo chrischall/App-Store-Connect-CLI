@@ -3153,6 +3153,45 @@ func TestUpdateAppStoreVersionLocalization_OmitsLocale(t *testing.T) {
 	}
 }
 
+func TestUpdateAppStoreVersionLocalizationFields_PreservesExplicitEmpty(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":{"type":"appStoreVersionLocalizations","id":"loc-1","attributes":{"description":"Updated","promotionalText":""}}}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodPatch || req.URL.Path != "/v1/appStoreVersionLocalizations/loc-1" {
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.Path)
+		}
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		var envelope struct {
+			Data struct {
+				Type       string            `json:"type"`
+				ID         string            `json:"id"`
+				Attributes map[string]string `json:"attributes"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(body, &envelope); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		if envelope.Data.Type != string(ResourceTypeAppStoreVersionLocalizations) || envelope.Data.ID != "loc-1" {
+			t.Fatalf("unexpected resource identity: %+v", envelope.Data)
+		}
+		if value, ok := envelope.Data.Attributes["promotionalText"]; !ok || value != "" {
+			t.Fatalf("expected explicit empty promotionalText, got %+v", envelope.Data.Attributes)
+		}
+		if _, ok := envelope.Data.Attributes["keywords"]; ok {
+			t.Fatalf("expected omitted keywords, got %+v", envelope.Data.Attributes)
+		}
+	}, response)
+
+	if _, err := client.UpdateAppStoreVersionLocalizationFields(context.Background(), "loc-1", map[string]string{
+		"description":     "Updated",
+		"promotionalText": "",
+	}); err != nil {
+		t.Fatalf("UpdateAppStoreVersionLocalizationFields() error: %v", err)
+	}
+}
+
 func TestDeleteAppStoreVersionLocalization_SendsRequest(t *testing.T) {
 	response := jsonResponse(http.StatusNoContent, "")
 	client := newTestClient(t, func(req *http.Request) {
@@ -3579,6 +3618,45 @@ func TestUpdateAppInfoLocalization_OmitsLocale(t *testing.T) {
 	}
 	if _, err := client.UpdateAppInfoLocalization(context.Background(), "loc-1", attrs); err != nil {
 		t.Fatalf("UpdateAppInfoLocalization() error: %v", err)
+	}
+}
+
+func TestUpdateAppInfoLocalizationFields_PreservesExplicitEmpty(t *testing.T) {
+	response := jsonResponse(http.StatusOK, `{"data":{"type":"appInfoLocalizations","id":"loc-1","attributes":{"name":"Updated","subtitle":""}}}`)
+	client := newTestClient(t, func(req *http.Request) {
+		if req.Method != http.MethodPatch || req.URL.Path != "/v1/appInfoLocalizations/loc-1" {
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.Path)
+		}
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		var envelope struct {
+			Data struct {
+				Type       string            `json:"type"`
+				ID         string            `json:"id"`
+				Attributes map[string]string `json:"attributes"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(body, &envelope); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		if envelope.Data.Type != string(ResourceTypeAppInfoLocalizations) || envelope.Data.ID != "loc-1" {
+			t.Fatalf("unexpected resource identity: %+v", envelope.Data)
+		}
+		if value, ok := envelope.Data.Attributes["subtitle"]; !ok || value != "" {
+			t.Fatalf("expected explicit empty subtitle, got %+v", envelope.Data.Attributes)
+		}
+		if _, ok := envelope.Data.Attributes["privacyPolicyUrl"]; ok {
+			t.Fatalf("expected omitted privacyPolicyUrl, got %+v", envelope.Data.Attributes)
+		}
+	}, response)
+
+	if _, err := client.UpdateAppInfoLocalizationFields(context.Background(), "loc-1", map[string]string{
+		"name":     "Updated",
+		"subtitle": "",
+	}); err != nil {
+		t.Fatalf("UpdateAppInfoLocalizationFields() error: %v", err)
 	}
 }
 

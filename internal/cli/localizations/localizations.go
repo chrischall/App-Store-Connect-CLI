@@ -2,7 +2,6 @@ package localizations
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -147,7 +146,6 @@ Examples:
 					fmt.Fprintln(os.Stderr, "Error: --app is required for app-info localizations")
 					return flag.ErrHelp
 				}
-
 				client, err := shared.GetASCClient()
 				if err != nil {
 					return fmt.Errorf("localizations list: %w", err)
@@ -323,7 +321,6 @@ Examples:
 					fmt.Fprintln(os.Stderr, "Error: --app is required for app-info localizations")
 					return flag.ErrHelp
 				}
-
 				client, err := shared.GetASCClient()
 				if err != nil {
 					return fmt.Errorf("localizations download: %w", err)
@@ -454,6 +451,9 @@ Examples:
 
 				valuesByLocale, err := shared.ReadLocalizationStrings(*path, locales)
 				if err != nil {
+					if shared.IsLocalizationInputError(err) {
+						return shared.UsageError(err.Error())
+					}
 					return fmt.Errorf("localizations upload: %w", err)
 				}
 				if err := shared.ValidateVersionLocalizationValueSet(valuesByLocale); err != nil {
@@ -486,18 +486,18 @@ Examples:
 				}
 				shared.FinalizeLocalizationUploadResult(&result, "localizations upload")
 
-				if err := shared.PrintOutput(&result, *output.Output, *output.Pretty); err != nil {
+				if err := shared.PrintOutputWithRenderers(
+					&result, *output.Output, *output.Pretty,
+					func() error { return shared.RenderLocalizationUploadResult(&result, false) },
+					func() error { return shared.RenderLocalizationUploadResult(&result, true) },
+				); err != nil {
 					return err
 				}
 				if err := shared.PrintSubmitReadinessCreateWarnings(os.Stderr, warnings); err != nil {
 					return err
 				}
 				if uploadErr != nil || result.FailureArtifactError != "" {
-					return shared.NewReportedError(errors.Join(
-						fmt.Errorf("localizations upload: %d locale(s) failed", result.Failed),
-						uploadErr,
-						localizationUploadArtifactError(result.FailureArtifactError),
-					))
+					return localizationUploadReportedError(result.Failed, uploadErr, result.FailureArtifactError)
 				}
 				return nil
 			case shared.LocalizationTypeAppInfo:
@@ -505,6 +505,16 @@ Examples:
 				if resolvedAppID == "" {
 					fmt.Fprintln(os.Stderr, "Error: --app is required for app-info localizations")
 					return flag.ErrHelp
+				}
+				valuesByLocale, err := shared.ReadLocalizationStrings(*path, locales)
+				if err != nil {
+					if shared.IsLocalizationInputError(err) {
+						return shared.UsageError(err.Error())
+					}
+					return fmt.Errorf("localizations upload: %w", err)
+				}
+				if err := shared.ValidateAppInfoLocalizationValueSet(valuesByLocale); err != nil {
+					return shared.UsageError(err.Error())
 				}
 
 				client, err := shared.GetASCClient()
@@ -515,11 +525,6 @@ Examples:
 				appInfo, err := shared.RetryReadWithFreshTimeout(ctx, func(resolveCtx context.Context) (string, error) {
 					return shared.ResolveAppInfoID(resolveCtx, client, resolvedAppID, strings.TrimSpace(*appInfoID))
 				})
-				if err != nil {
-					return fmt.Errorf("localizations upload: %w", err)
-				}
-
-				valuesByLocale, err := shared.ReadLocalizationStrings(*path, locales)
 				if err != nil {
 					return fmt.Errorf("localizations upload: %w", err)
 				}
@@ -540,15 +545,15 @@ Examples:
 				}
 				shared.FinalizeLocalizationUploadResult(&result, "localizations upload")
 
-				if err := shared.PrintOutput(&result, *output.Output, *output.Pretty); err != nil {
+				if err := shared.PrintOutputWithRenderers(
+					&result, *output.Output, *output.Pretty,
+					func() error { return shared.RenderLocalizationUploadResult(&result, false) },
+					func() error { return shared.RenderLocalizationUploadResult(&result, true) },
+				); err != nil {
 					return err
 				}
 				if uploadErr != nil || result.FailureArtifactError != "" {
-					return shared.NewReportedError(errors.Join(
-						fmt.Errorf("localizations upload: %d locale(s) failed", result.Failed),
-						uploadErr,
-						localizationUploadArtifactError(result.FailureArtifactError),
-					))
+					return localizationUploadReportedError(result.Failed, uploadErr, result.FailureArtifactError)
 				}
 				return nil
 			default:
@@ -558,11 +563,15 @@ Examples:
 	}
 }
 
-func localizationUploadArtifactError(message string) error {
-	if strings.TrimSpace(message) == "" {
-		return nil
+func localizationUploadReportedError(failed int, uploadErr error, artifactError string) error {
+	message := fmt.Sprintf("localizations upload: %d locale(s) failed", failed)
+	if uploadErr != nil {
+		message += ": " + uploadErr.Error()
 	}
-	return fmt.Errorf("write failure artifact: %s", message)
+	if strings.TrimSpace(artifactError) != "" {
+		message += "; write failure artifact: " + artifactError
+	}
+	return shared.NewReportedError(fmt.Errorf("%s", message))
 }
 
 func sharedVersionLocalizationValuesNeedUpdateContext(valuesByLocale map[string]map[string]string) bool {

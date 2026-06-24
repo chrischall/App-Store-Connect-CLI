@@ -108,12 +108,15 @@ func TestRunReconciledMutationRetriesReadbackChildDeadline(t *testing.T) {
 			return "", &asc.RetryableError{Err: errors.New("ambiguous")}
 		},
 		func(ctx context.Context) (string, bool, error) {
-			readbacks++
-			if readbacks == 1 {
-				<-ctx.Done()
-				return "", false, ctx.Err()
-			}
-			return "localization-id", true, nil
+			value, readErr := RetryReadWithFreshTimeout(ctx, func(requestCtx context.Context) (string, error) {
+				readbacks++
+				if readbacks == 1 {
+					<-requestCtx.Done()
+					return "", requestCtx.Err()
+				}
+				return "localization-id", nil
+			})
+			return value, value != "", readErr
 		},
 	)
 	if err != nil {

@@ -205,9 +205,7 @@ Examples:
 							return stateIndex.matches(row), nil
 						},
 						func(mutationCtx context.Context) error {
-							createCtx, createCancel := shared.ContextWithTimeout(mutationCtx)
-							defer createCancel()
-							_, err := client.CreateSubscriptionIntroductoryOffer(createCtx, summary.SubscriptionID, attrs, row.territory, row.pricePointID)
+							_, err := client.CreateSubscriptionIntroductoryOffer(mutationCtx, summary.SubscriptionID, attrs, row.territory, row.pricePointID)
 							return err
 						},
 					)

@@ -858,6 +858,7 @@ func TestPublishAppStoreMetadataDirAppliesAfterEnsureVersionBeforeAttach(t *test
 	metadataDir := t.TempDir()
 	writePublishVersionMetadataFixture(t, metadataDir, "1.2.3")
 	sequence := make([]string, 0, 4)
+	var uploadDeadline time.Time
 
 	getPublishASCClientFn = func(time.Duration) (*asc.Client, error) { return newPublishCommandTestClient(t), nil }
 	resolvePublishAppIDWithLookupFn = func(_ context.Context, _ *asc.Client, appID string) (string, error) {
@@ -866,7 +867,13 @@ func TestPublishAppStoreMetadataDirAppliesAfterEnsureVersionBeforeAttach(t *test
 	validatePublishIPAPathFn = func(string) (os.FileInfo, error) {
 		return newPublishTestFileInfo(t)
 	}
-	uploadBuildAndWaitForIDFn = func(_ context.Context, _ *asc.Client, _ string, _ string, _ os.FileInfo, version, buildNumber string, _ asc.Platform, _ time.Duration, _ time.Duration, _ bool) (*publishUploadResult, error) {
+	uploadBuildAndWaitForIDFn = func(stageCtx context.Context, _ *asc.Client, _ string, _ string, _ os.FileInfo, version, buildNumber string, _ asc.Platform, _ time.Duration, _ time.Duration, _ bool) (*publishUploadResult, error) {
+		var ok bool
+		uploadDeadline, ok = stageCtx.Deadline()
+		if !ok {
+			t.Fatal("expected upload stage deadline")
+		}
+		time.Sleep(200 * time.Millisecond)
 		return &publishUploadResult{
 			Build: &asc.BuildResponse{
 				Data: asc.Resource[asc.BuildAttributes]{
@@ -878,8 +885,12 @@ func TestPublishAppStoreMetadataDirAppliesAfterEnsureVersionBeforeAttach(t *test
 			BuildNumber: buildNumber,
 		}, nil
 	}
-	applyPublishVersionMetadataFn = func(_ context.Context, _ *asc.Client, opts publishVersionMetadataOptions) ([]asc.LocalizationUploadLocaleResult, error) {
+	applyPublishVersionMetadataFn = func(metadataCtx context.Context, _ *asc.Client, opts publishVersionMetadataOptions) ([]asc.LocalizationUploadLocaleResult, error) {
 		sequence = append(sequence, "apply_metadata")
+		metadataDeadline, ok := metadataCtx.Deadline()
+		if !ok || !metadataDeadline.After(uploadDeadline.Add(150*time.Millisecond)) {
+			t.Fatalf("expected fresh metadata deadline after prior stage; upload=%v metadata=%v", uploadDeadline, metadataDeadline)
+		}
 		if opts.VersionID != "version-1" {
 			t.Fatalf("expected metadata version ID version-1, got %q", opts.VersionID)
 		}
@@ -922,6 +933,7 @@ func TestPublishAppStoreMetadataDirAppliesAfterEnsureVersionBeforeAttach(t *test
 		"--version", "1.2.3",
 		"--build-number", "42",
 		"--metadata-dir", metadataDir,
+		"--timeout", "500ms",
 		"--output", "json",
 	}); err != nil {
 		t.Fatalf("parse flags: %v", err)

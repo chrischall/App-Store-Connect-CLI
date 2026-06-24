@@ -228,9 +228,7 @@ Examples:
 						return reconciled == 1, readErr
 					},
 					func(mutationCtx context.Context) error {
-						initialCtx, initialCancel := shared.ContextWithTimeout(mutationCtx)
-						defer initialCancel()
-						_, mutationErr := client.SetSubscriptionInitialPrice(initialCtx, subID, baseTarget.PricePointID, baseTarget.Territory, priceAttrs)
+						_, mutationErr := client.SetSubscriptionInitialPrice(mutationCtx, subID, baseTarget.PricePointID, baseTarget.Territory, priceAttrs)
 						return mutationErr
 					},
 				)
@@ -447,7 +445,7 @@ func runEqualizePricePass(ctx context.Context, client *asc.Client, subID string,
 
 func partitionEqualizeFailures(ctx context.Context, failures []equalizeAttemptFailure) (retryable []equalizeAttemptFailure, final []equalizeAttemptFailure) {
 	for _, failure := range failures {
-		if reconciledMutationIsTransient(ctx, failure.Err) {
+		if shared.IsTransientMutationError(ctx, failure.Err) {
 			retryable = append(retryable, failure)
 			continue
 		}

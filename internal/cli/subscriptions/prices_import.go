@@ -285,9 +285,7 @@ Examples:
 							return stateIndex.matches(resolvedRow), nil
 						},
 						func(mutationCtx context.Context) error {
-							createCtx, createCancel := shared.ContextWithTimeout(mutationCtx)
-							defer createCancel()
-							_, err := client.CreateSubscriptionPrice(createCtx, summary.SubscriptionID, pricePointID, resolvedRow.territoryID, attrs)
+							_, err := client.CreateSubscriptionPrice(mutationCtx, summary.SubscriptionID, pricePointID, resolvedRow.territoryID, attrs)
 							return err
 						},
 					)

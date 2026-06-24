@@ -613,13 +613,16 @@ Examples:
 			}
 
 			if metadataDirValue != "" {
-				if _, err := applyPublishVersionMetadataFn(requestCtx, client, publishVersionMetadataOptions{
+				metadataCtx, metadataCancel := newPublishRequestCtx()
+				_, metadataErr := applyPublishVersionMetadataFn(metadataCtx, client, publishVersionMetadataOptions{
 					VersionID:      versionResp.Data.ID,
 					Version:        versionValue,
 					Dir:            metadataDirValue,
 					ValuesByLocale: metadataValuesByLocale,
-				}); err != nil {
-					return fmt.Errorf("publish appstore: apply metadata: %w", err)
+				})
+				metadataCancel()
+				if metadataErr != nil {
+					return fmt.Errorf("publish appstore: apply metadata: %w", metadataErr)
 				}
 			}
 
