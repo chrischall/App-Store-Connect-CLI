@@ -493,8 +493,7 @@ func (index *subscriptionPriceImportStateIndex) matches(target subscriptionPrice
 			if state.territoryID == targetTerritory &&
 				state.planType == target.planType &&
 				state.pricePointID == target.pricePointID &&
-				state.startDate == targetStart &&
-				(!target.preserveSet || state.preserveCurrentPrice == target.preserveCurrentPrice) {
+				state.startDate == targetStart {
 				return true
 			}
 		}
@@ -524,9 +523,7 @@ func (index *subscriptionPriceImportStateIndex) matches(target subscriptionPrice
 			selectedStart = start
 		}
 	}
-	return selected != nil &&
-		selected.pricePointID == target.pricePointID &&
-		(!target.preserveSet || selected.preserveCurrentPrice == target.preserveCurrentPrice)
+	return selected != nil && selected.pricePointID == target.pricePointID
 }
 
 func (index *subscriptionPriceImportStateIndex) add(target subscriptionPriceImportResolvedRow) {

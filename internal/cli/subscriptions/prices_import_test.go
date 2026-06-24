@@ -182,7 +182,7 @@ func TestSubscriptionPriceImportStateMatchesCanonicalSameDayPrice(t *testing.T) 
 	}
 }
 
-func TestSubscriptionPriceImportStateSelectsCanonicalBeforeComparingExplicitPreservedValue(t *testing.T) {
+func TestSubscriptionPriceImportStateSelectsCanonicalWhenPreserveIsExplicit(t *testing.T) {
 	index := &subscriptionPriceImportStateIndex{
 		now: time.Date(2026, time.July, 2, 12, 0, 0, 0, time.UTC),
 		states: []subscriptionPriceImportState{
@@ -202,9 +202,8 @@ func TestSubscriptionPriceImportStateSelectsCanonicalBeforeComparingExplicitPres
 	}
 
 	target.pricePointID = "canonical"
-	target.preserveCurrentPrice = false
 	if !index.matches(target) {
-		t.Fatal("expected the canonical row to match its explicit preserved value")
+		t.Fatal("expected preserveCurrentPrice not to be compared with the canonical row's historical preserved state")
 	}
 }
 
@@ -220,6 +219,25 @@ func TestSubscriptionPriceImportStateExplicitDateMatchesEitherPreservedValue(t *
 	}
 	if !index.matches(target) {
 		t.Fatal("expected an explicit-date target with omitted preserve to match either preserved value")
+	}
+}
+
+func TestSubscriptionPriceImportStateExplicitDateIgnoresCreatePreserveOption(t *testing.T) {
+	index := &subscriptionPriceImportStateIndex{
+		states: []subscriptionPriceImportState{
+			{territoryID: "USA", pricePointID: "target", startDate: "2026-08-15", preserveCurrentPrice: false, planType: asc.SubscriptionPlanTypeUpfront},
+		},
+	}
+	target := subscriptionPriceImportResolvedRow{
+		territoryID:          "USA",
+		pricePointID:         "target",
+		startDate:            "2026-08-15",
+		preserveSet:          true,
+		preserveCurrentPrice: true,
+		planType:             asc.SubscriptionPlanTypeUpfront,
+	}
+	if !index.matches(target) {
+		t.Fatal("expected preserveCurrentPrice create option not to be compared with response preserved state")
 	}
 }
 
