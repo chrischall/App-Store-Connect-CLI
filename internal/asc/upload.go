@@ -14,6 +14,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // UploadOptions configure how upload operations are executed.
@@ -143,6 +144,7 @@ func ExecuteUploadOperations(ctx context.Context, filePath string, operations []
 
 	jobs := make(chan uploadTask)
 	var wg sync.WaitGroup
+	var completed atomic.Int64
 
 	worker := func() {
 		defer wg.Done()
@@ -154,6 +156,7 @@ func ExecuteUploadOperations(ctx context.Context, filePath string, operations []
 				setErr(err)
 				return
 			}
+			completed.Add(1)
 		}
 	}
 
@@ -176,7 +179,14 @@ sendLoop:
 	if firstErr != nil {
 		return firstErr
 	}
-	return ctx.Err()
+	completedCount := completed.Load()
+	if completedCount == int64(len(operations)) {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return fmt.Errorf("upload operations incomplete: completed %d of %d", completedCount, len(operations))
 }
 
 func openUploadSourceFile(filePath string) (*os.File, error) {

@@ -182,6 +182,35 @@ func TestExecuteUploadOperations_PreCanceledContextDoesNotSucceed(t *testing.T) 
 	}
 }
 
+func TestExecuteUploadOperations_SucceedsWhenParentCanceledAfterFinalPUT(t *testing.T) {
+	filePath := filepath.Join(t.TempDir(), "app.ipa")
+	if err := os.WriteFile(filePath, []byte("abc"), 0o600); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	client := &http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Body:       &cancelOnCloseReadCloser{cancel: cancel},
+			Header:     make(http.Header),
+		}, nil
+	})}
+
+	err := ExecuteUploadOperations(ctx, filePath, []UploadOperation{{
+		Method: http.MethodPut,
+		URL:    "https://example.test/upload",
+		Length: 3,
+	}}, WithUploadHTTPClient(client), withUploadRetryOptions(0))
+	if err != nil {
+		t.Fatalf("expected completed upload to succeed, got %v", err)
+	}
+	if !errors.Is(ctx.Err(), context.Canceled) {
+		t.Fatalf("expected transport cleanup to cancel parent, got %v", ctx.Err())
+	}
+}
+
 func TestExecuteUploadOperations_UsesFreshTimeoutForEachOperation(t *testing.T) {
 	t.Setenv("ASC_UPLOAD_TIMEOUT", "150ms")
 	t.Setenv("ASC_MAX_RETRIES", "0")
@@ -573,6 +602,19 @@ type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 func (fn roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return fn(req)
+}
+
+type cancelOnCloseReadCloser struct {
+	cancel context.CancelFunc
+}
+
+func (*cancelOnCloseReadCloser) Read([]byte) (int, error) {
+	return 0, io.EOF
+}
+
+func (r *cancelOnCloseReadCloser) Close() error {
+	r.cancel()
+	return nil
 }
 
 func withUploadRetryOptions(maxRetries int) UploadOption {
