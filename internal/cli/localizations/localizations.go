@@ -2,6 +2,7 @@ package localizations
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -464,29 +465,41 @@ Examples:
 					return fmt.Errorf("localizations upload: %w", err)
 				}
 
-				requestCtx, cancel := shared.ContextWithTimeout(ctx)
-				defer cancel()
-
 				submitOpts := shared.SubmitReadinessOptions{}
 				if sharedVersionLocalizationValuesNeedUpdateContext(valuesByLocale) {
-					submitOpts = shared.ResolveSubmitReadinessOptionsForVersionBestEffort(requestCtx, client, strings.TrimSpace(*versionID), "", "")
+					readinessCtx, readinessCancel := shared.ContextWithTimeout(ctx)
+					submitOpts = shared.ResolveSubmitReadinessOptionsForVersionBestEffort(readinessCtx, client, strings.TrimSpace(*versionID), "", "")
+					readinessCancel()
 				}
-				results, warnings, err := shared.UploadPrevalidatedVersionLocalizationsWithWarnings(requestCtx, client, strings.TrimSpace(*versionID), valuesByLocale, *dryRun, submitOpts)
-				if err != nil {
+				results, warnings, err := shared.UploadPrevalidatedVersionLocalizationsWithWarnings(ctx, client, strings.TrimSpace(*versionID), valuesByLocale, *dryRun, submitOpts)
+				if err != nil && len(results) == 0 {
 					return fmt.Errorf("localizations upload: %w", err)
 				}
+				uploadErr := err
 
 				result := asc.LocalizationUploadResult{
 					Type:      normalizedType,
 					VersionID: strings.TrimSpace(*versionID),
 					DryRun:    *dryRun,
+					InputPath: strings.TrimSpace(*path),
 					Results:   results,
 				}
+				shared.FinalizeLocalizationUploadResult(&result, "localizations upload")
 
 				if err := shared.PrintOutput(&result, *output.Output, *output.Pretty); err != nil {
 					return err
 				}
-				return shared.PrintSubmitReadinessCreateWarnings(os.Stderr, warnings)
+				if err := shared.PrintSubmitReadinessCreateWarnings(os.Stderr, warnings); err != nil {
+					return err
+				}
+				if uploadErr != nil || result.FailureArtifactError != "" {
+					return shared.NewReportedError(errors.Join(
+						fmt.Errorf("localizations upload: %d locale(s) failed", result.Failed),
+						uploadErr,
+						localizationUploadArtifactError(result.FailureArtifactError),
+					))
+				}
+				return nil
 			case shared.LocalizationTypeAppInfo:
 				resolvedAppID := shared.ResolveAppID(*appID)
 				if resolvedAppID == "" {
@@ -499,10 +512,9 @@ Examples:
 					return fmt.Errorf("localizations upload: %w", err)
 				}
 
-				requestCtx, cancel := shared.ContextWithTimeout(ctx)
-				defer cancel()
-
-				appInfo, err := shared.ResolveAppInfoID(requestCtx, client, resolvedAppID, strings.TrimSpace(*appInfoID))
+				appInfo, err := shared.RetryReadWithFreshTimeout(ctx, func(resolveCtx context.Context) (string, error) {
+					return shared.ResolveAppInfoID(resolveCtx, client, resolvedAppID, strings.TrimSpace(*appInfoID))
+				})
 				if err != nil {
 					return fmt.Errorf("localizations upload: %w", err)
 				}
@@ -512,25 +524,45 @@ Examples:
 					return fmt.Errorf("localizations upload: %w", err)
 				}
 
-				results, err := shared.UploadAppInfoLocalizations(requestCtx, client, appInfo, valuesByLocale, *dryRun)
-				if err != nil {
+				results, err := shared.UploadAppInfoLocalizations(ctx, client, appInfo, valuesByLocale, *dryRun)
+				if err != nil && len(results) == 0 {
 					return fmt.Errorf("localizations upload: %w", err)
 				}
+				uploadErr := err
 
 				result := asc.LocalizationUploadResult{
 					Type:      normalizedType,
 					AppID:     resolvedAppID,
 					AppInfoID: appInfo,
 					DryRun:    *dryRun,
+					InputPath: strings.TrimSpace(*path),
 					Results:   results,
 				}
+				shared.FinalizeLocalizationUploadResult(&result, "localizations upload")
 
-				return shared.PrintOutput(&result, *output.Output, *output.Pretty)
+				if err := shared.PrintOutput(&result, *output.Output, *output.Pretty); err != nil {
+					return err
+				}
+				if uploadErr != nil || result.FailureArtifactError != "" {
+					return shared.NewReportedError(errors.Join(
+						fmt.Errorf("localizations upload: %d locale(s) failed", result.Failed),
+						uploadErr,
+						localizationUploadArtifactError(result.FailureArtifactError),
+					))
+				}
+				return nil
 			default:
 				return fmt.Errorf("localizations upload: unsupported type %q", normalizedType)
 			}
 		},
 	}
+}
+
+func localizationUploadArtifactError(message string) error {
+	if strings.TrimSpace(message) == "" {
+		return nil
+	}
+	return fmt.Errorf("write failure artifact: %s", message)
 }
 
 func sharedVersionLocalizationValuesNeedUpdateContext(valuesByLocale map[string]map[string]string) bool {

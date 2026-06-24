@@ -3,6 +3,7 @@ package cmdtest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -375,4 +376,141 @@ func TestLocalizationsUploadUpdateOnlyDoesNotWarn(t *testing.T) {
 	if len(out.Results) != 1 || out.Results[0].Locale != "en-US" || out.Results[0].Action != "update" {
 		t.Fatalf("expected single update result, got %+v", out.Results)
 	}
+}
+
+func TestLocalizationsUploadPartialFailurePrintsSummaryAndArtifact(t *testing.T) {
+	result, runErr := runPartialLocalizationsUpload(t, false)
+	if _, ok := errors.AsType[ReportedError](runErr); !ok {
+		t.Fatalf("expected ReportedError, got %T: %v", runErr, runErr)
+	}
+	if result.Total != 3 || result.Succeeded != 2 || result.Failed != 1 || result.FailureArtifactPath == "" || result.FailureArtifactError != "" {
+		t.Fatalf("unexpected partial summary: %+v", result)
+	}
+	payload, err := os.ReadFile(result.FailureArtifactPath)
+	if err != nil {
+		t.Fatalf("read failure artifact: %v", err)
+	}
+	if !strings.Contains(string(payload), `"schemaVersion": 1`) || !strings.Contains(string(payload), `"description": "New French"`) {
+		t.Fatalf("failure artifact is not resumable: %s", payload)
+	}
+}
+
+func TestLocalizationsUploadArtifactWriteFailureStillPrintsSummary(t *testing.T) {
+	result, runErr := runPartialLocalizationsUpload(t, true)
+	if _, ok := errors.AsType[ReportedError](runErr); !ok {
+		t.Fatalf("expected ReportedError, got %T: %v", runErr, runErr)
+	}
+	if result.Total != 3 || result.Succeeded != 2 || result.Failed != 1 || result.FailureArtifactPath != "" || result.FailureArtifactError == "" {
+		t.Fatalf("expected printed artifact failure summary: %+v", result)
+	}
+}
+
+func TestLocalizationsUploadInitialReadFailureIsNotZeroFailureSummary(t *testing.T) {
+	setupAuth(t)
+	t.Setenv("ASC_MAX_RETRIES", "0")
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "en-US.strings"), []byte("\"description\" = \"Desired\";\n\"whatsNew\" = \"Notes\";\n"), 0o644); err != nil {
+		t.Fatalf("write strings: %v", err)
+	}
+	originalTransport := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodGet || req.URL.Path != "/v1/appStoreVersions/version-1/appStoreVersionLocalizations" {
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
+		}
+		return jsonHTTPResponse(http.StatusInternalServerError, `{"errors":[{"status":"500","code":"SERVER_ERROR","detail":"unavailable"}]}`), nil
+	})
+
+	root := RootCommand("1.2.3")
+	root.FlagSet.SetOutput(io.Discard)
+	var runErr error
+	stdout, _ := captureOutput(t, func() {
+		if err := root.Parse([]string{"localizations", "upload", "--version", "version-1", "--path", dir, "--output", "json"}); err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		runErr = root.Run(context.Background())
+	})
+	if runErr == nil {
+		t.Fatal("expected initial read failure")
+	}
+	if _, ok := errors.AsType[ReportedError](runErr); ok {
+		t.Fatalf("expected ordinary global error, got ReportedError: %v", runErr)
+	}
+	if stdout != "" || strings.Contains(runErr.Error(), "0 locale(s) failed") {
+		t.Fatalf("unexpected zero-failure summary: stdout=%q err=%v", stdout, runErr)
+	}
+}
+
+type partialLocalizationUploadResult struct {
+	Total                int    `json:"total"`
+	Succeeded            int    `json:"succeeded"`
+	Failed               int    `json:"failed"`
+	FailureArtifactPath  string `json:"failureArtifactPath"`
+	FailureArtifactError string `json:"failureArtifactError"`
+}
+
+func runPartialLocalizationsUpload(t *testing.T, blockArtifact bool) (partialLocalizationUploadResult, error) {
+	t.Helper()
+	setupAuth(t)
+	t.Setenv("ASC_MAX_RETRIES", "0")
+	workDir := t.TempDir()
+	t.Chdir(workDir)
+	inputDir := filepath.Join(workDir, "input")
+	if err := os.MkdirAll(inputDir, 0o755); err != nil {
+		t.Fatalf("mkdir input: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(inputDir, "en-US.strings"), []byte("\"description\" = \"New English\";\n\"whatsNew\" = \"English notes\";\n"), 0o644); err != nil {
+		t.Fatalf("write English: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(inputDir, "fr-FR.strings"), []byte("\"description\" = \"New French\";\n\"whatsNew\" = \"French notes\";\n"), 0o644); err != nil {
+		t.Fatalf("write French: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(inputDir, "ja.strings"), []byte("\"description\" = \"New Japanese\";\n\"whatsNew\" = \"Japanese notes\";\n"), 0o644); err != nil {
+		t.Fatalf("write Japanese: %v", err)
+	}
+	if blockArtifact {
+		if err := os.WriteFile(".asc", []byte("not a directory"), 0o644); err != nil {
+			t.Fatalf("write artifact blocker: %v", err)
+		}
+	}
+
+	originalTransport := http.DefaultTransport
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+	patches := 0
+	http.DefaultTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/v1/appStoreVersions/version-1/appStoreVersionLocalizations":
+			return jsonHTTPResponse(http.StatusOK, `{"data":[{"type":"appStoreVersionLocalizations","id":"en-id","attributes":{"locale":"en-US","description":"Old English"}},{"type":"appStoreVersionLocalizations","id":"fr-id","attributes":{"locale":"fr-FR","description":"Old French"}},{"type":"appStoreVersionLocalizations","id":"ja-id","attributes":{"locale":"ja","description":"Old Japanese"}}],"links":{"next":""}}`), nil
+		case req.Method == http.MethodPatch && req.URL.Path == "/v1/appStoreVersionLocalizations/en-id":
+			patches++
+			return jsonHTTPResponse(http.StatusOK, `{"data":{"type":"appStoreVersionLocalizations","id":"en-id","attributes":{"locale":"en-US","description":"New English","whatsNew":"English notes"}}}`), nil
+		case req.Method == http.MethodPatch && req.URL.Path == "/v1/appStoreVersionLocalizations/fr-id":
+			patches++
+			return jsonHTTPResponse(http.StatusBadRequest, `{"errors":[{"status":"400","code":"ENTITY_ERROR","detail":"French rejected"}]}`), nil
+		case req.Method == http.MethodPatch && req.URL.Path == "/v1/appStoreVersionLocalizations/ja-id":
+			patches++
+			return jsonHTTPResponse(http.StatusOK, `{"data":{"type":"appStoreVersionLocalizations","id":"ja-id","attributes":{"locale":"ja","description":"New Japanese","whatsNew":"Japanese notes"}}}`), nil
+		default:
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
+			return nil, nil
+		}
+	})
+
+	root := RootCommand("1.2.3")
+	root.FlagSet.SetOutput(io.Discard)
+	var runErr error
+	stdout, _ := captureOutput(t, func() {
+		if err := root.Parse([]string{"localizations", "upload", "--version", "version-1", "--path", inputDir, "--output", "json"}); err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		runErr = root.Run(context.Background())
+	})
+	if patches != 3 {
+		t.Fatalf("expected later locale after failure, patches=%d", patches)
+	}
+	var result partialLocalizationUploadResult
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("parse summary: %v; stdout=%q", err, stdout)
+	}
+	return result, runErr
 }
