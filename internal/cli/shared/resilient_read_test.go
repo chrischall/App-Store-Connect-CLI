@@ -7,7 +7,7 @@ import (
 )
 
 func TestRetryReadWithFreshTimeoutRetriesChildDeadline(t *testing.T) {
-	t.Setenv("ASC_TIMEOUT", "1ms")
+	t.Setenv("ASC_TIMEOUT", "100ms")
 	t.Setenv("ASC_MAX_RETRIES", "1")
 	t.Setenv("ASC_BASE_DELAY", "1ms")
 	t.Setenv("ASC_MAX_DELAY", "1ms")
@@ -29,6 +29,25 @@ func TestRetryReadWithFreshTimeoutRetriesChildDeadline(t *testing.T) {
 	}
 	if value != "ok" || requests != 2 {
 		t.Fatalf("unexpected retry result: value=%q requests=%d", value, requests)
+	}
+}
+
+func TestRetryReadWithFreshTimeoutDoesNotRetryInFlightParentCancellation(t *testing.T) {
+	t.Setenv("ASC_MAX_RETRIES", "3")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	requests := 0
+	_, err := RetryReadWithFreshTimeout(ctx, func(requestCtx context.Context) (string, error) {
+		requests++
+		cancel()
+		<-requestCtx.Done()
+		return "", requestCtx.Err()
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context canceled, got %v", err)
+	}
+	if requests != 1 {
+		t.Fatalf("expected one in-flight request, got %d", requests)
 	}
 }
 

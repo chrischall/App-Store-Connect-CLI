@@ -48,6 +48,8 @@ type subscriptionImagesQuery struct {
 
 type subscriptionIntroductoryOffersQuery struct {
 	listQuery
+	fields  []string
+	include []string
 }
 
 type subscriptionPromotionalOffersQuery struct {
@@ -141,6 +143,20 @@ func WithSubscriptionIntroductoryOffersNextURL(next string) SubscriptionIntroduc
 		if strings.TrimSpace(next) != "" {
 			q.nextURL = strings.TrimSpace(next)
 		}
+	}
+}
+
+// WithSubscriptionIntroductoryOffersFields sets fields for returned introductory offers.
+func WithSubscriptionIntroductoryOffersFields(fields []string) SubscriptionIntroductoryOffersOption {
+	return func(q *subscriptionIntroductoryOffersQuery) {
+		q.fields = normalizeList(fields)
+	}
+}
+
+// WithSubscriptionIntroductoryOffersInclude sets introductory offer relationships to include.
+func WithSubscriptionIntroductoryOffersInclude(include []string) SubscriptionIntroductoryOffersOption {
+	return func(q *subscriptionIntroductoryOffersQuery) {
+		q.include = normalizeList(include)
 	}
 }
 
@@ -364,6 +380,8 @@ func buildSubscriptionImagesQuery(query *subscriptionImagesQuery) string {
 
 func buildSubscriptionIntroductoryOffersQuery(query *subscriptionIntroductoryOffersQuery) string {
 	values := url.Values{}
+	addCSV(values, "fields[subscriptionIntroductoryOffers]", query.fields)
+	addCSV(values, "include", query.include)
 	addLimit(values, query.limit)
 	return values.Encode()
 }
