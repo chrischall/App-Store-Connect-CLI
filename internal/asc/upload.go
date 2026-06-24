@@ -10,6 +10,7 @@ import (
 	"hash"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -28,6 +29,19 @@ type UploadOption func(*UploadOptions)
 type uploadTask struct {
 	index int
 	op    UploadOperation
+}
+
+type sanitizedUploadError struct {
+	message string
+	err     error
+}
+
+func (e *sanitizedUploadError) Error() string {
+	return e.message
+}
+
+func (e *sanitizedUploadError) Unwrap() error {
+	return e.err
 }
 
 // WithUploadConcurrency sets the number of concurrent upload workers.
@@ -207,7 +221,7 @@ func executeUploadOperation(ctx context.Context, file *os.File, task uploadTask,
 		reader := io.NewSectionReader(file, task.op.Offset, task.op.Length)
 		req, err := http.NewRequestWithContext(requestCtx, method, task.op.URL, reader)
 		if err != nil {
-			return struct{}{}, err
+			return struct{}{}, newSanitizedUploadError("create upload request", task.op.URL, err)
 		}
 		req.ContentLength = task.op.Length
 		for _, header := range task.op.RequestHeaders {
@@ -219,7 +233,7 @@ func executeUploadOperation(ctx context.Context, file *os.File, task uploadTask,
 			if parentErr := ctx.Err(); parentErr != nil {
 				return struct{}{}, parentErr
 			}
-			requestErr := fmt.Errorf("upload request failed: %w", err)
+			requestErr := newSanitizedUploadError("upload request", task.op.URL, err)
 			if replaySafe && (errors.Is(err, context.DeadlineExceeded) || isTransientTransportError(err)) {
 				return struct{}{}, &RetryableError{Err: requestErr}
 			}
@@ -245,6 +259,23 @@ func executeUploadOperation(ctx context.Context, file *os.File, task uploadTask,
 		return fmt.Errorf("upload operation %d: %w", task.index, err)
 	}
 	return nil
+}
+
+func newSanitizedUploadError(operation, rawURL string, err error) error {
+	safeURL := sanitizeURLForLog(rawURL)
+	parsedURL, parseErr := url.Parse(safeURL)
+	if parseErr != nil {
+		safeURL = "[REDACTED]"
+	} else {
+		parsedURL.RawQuery = ""
+		parsedURL.ForceQuery = false
+		parsedURL.Fragment = ""
+		safeURL = parsedURL.String()
+	}
+	return &sanitizedUploadError{
+		message: fmt.Sprintf("%s failed for %s", operation, safeURL),
+		err:     err,
+	}
 }
 
 // VerifySourceFileChecksums computes and compares checksums provided by the API.

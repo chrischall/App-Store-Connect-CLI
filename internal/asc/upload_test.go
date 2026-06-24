@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -346,6 +347,111 @@ func TestExecuteUploadOperations_DoesNotReplayNonPUT(t *testing.T) {
 	}
 	if requests != 1 {
 		t.Fatalf("expected non-PUT operation not to replay, got %d requests", requests)
+	}
+}
+
+func TestExecuteUploadOperations_RedactsSignedURLInRequestConstructionError(t *testing.T) {
+	filePath := filepath.Join(t.TempDir(), "app.ipa")
+	if err := os.WriteFile(filePath, []byte("abc"), 0o600); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	var requests int32
+	client := &http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		atomic.AddInt32(&requests, 1)
+		return nil, errors.New("unexpected upload request")
+	})}
+	err := ExecuteUploadOperations(context.Background(), filePath, []UploadOperation{{
+		Method: http.MethodPut,
+		URL:    "https://upload.example.test/object%zz?X-Amz-Signature=secret-signature&uploadId=secret-upload-id",
+		Length: 3,
+	}}, WithUploadHTTPClient(client), withUploadRetryOptions(0))
+	if err == nil {
+		t.Fatal("expected request construction error")
+	}
+	if got := atomic.LoadInt32(&requests); got != 0 {
+		t.Fatalf("expected no transport call, got %d", got)
+	}
+	assertUploadErrorRedactsSignedURL(t, err)
+}
+
+func TestExecuteUploadOperations_RedactsSignedURLInTransportErrors(t *testing.T) {
+	sentinel := errors.New("permanent transport failure for X-Amz-Signature=secret-signature&uploadId=secret-upload-id")
+	tests := []struct {
+		name         string
+		transportErr error
+		maxRetries   int
+		wantAttempts int32
+		wantCause    error
+	}{
+		{
+			name:         "transient retry exhaustion",
+			transportErr: context.DeadlineExceeded,
+			maxRetries:   1,
+			wantAttempts: 2,
+			wantCause:    context.DeadlineExceeded,
+		},
+		{
+			name:         "permanent transport error",
+			transportErr: sentinel,
+			maxRetries:   3,
+			wantAttempts: 1,
+			wantCause:    sentinel,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			filePath := filepath.Join(t.TempDir(), "app.ipa")
+			if err := os.WriteFile(filePath, []byte("abc"), 0o600); err != nil {
+				t.Fatalf("write file: %v", err)
+			}
+
+			var attempts int32
+			client := &http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+				atomic.AddInt32(&attempts, 1)
+				return nil, test.transportErr
+			})}
+			err := ExecuteUploadOperations(context.Background(), filePath, []UploadOperation{{
+				Method: http.MethodPut,
+				URL:    "https://upload.example.test/object/path?X-Amz-Credential=secret-credential&X-Amz-Signature=secret-signature&uploadId=secret-upload-id&correlationKey=secret-correlation-key",
+				Length: 3,
+			}}, WithUploadHTTPClient(client), withUploadRetryOptions(test.maxRetries))
+			if err == nil {
+				t.Fatal("expected transport error")
+			}
+			if !errors.Is(err, test.wantCause) {
+				t.Fatalf("expected error to preserve %v, got %v", test.wantCause, err)
+			}
+			var urlErr *url.Error
+			if !errors.As(err, &urlErr) {
+				t.Fatalf("expected error to preserve url.Error, got %T: %v", err, err)
+			}
+			if got := atomic.LoadInt32(&attempts); got != test.wantAttempts {
+				t.Fatalf("expected %d attempts, got %d", test.wantAttempts, got)
+			}
+			assertUploadErrorRedactsSignedURL(t, err)
+			if !strings.Contains(err.Error(), "https://upload.example.test/object/path") {
+				t.Fatalf("expected safe upload origin/path in error, got %v", err)
+			}
+		})
+	}
+}
+
+func assertUploadErrorRedactsSignedURL(t *testing.T, err error) {
+	t.Helper()
+	for _, secret := range []string{
+		"X-Amz-Credential",
+		"X-Amz-Signature",
+		"secret-credential",
+		"secret-signature",
+		"uploadId",
+		"secret-upload-id",
+		"correlationKey",
+		"secret-correlation-key",
+	} {
+		if strings.Contains(err.Error(), secret) {
+			t.Fatalf("upload error leaked %q: %v", secret, err)
+		}
 	}
 }
 
