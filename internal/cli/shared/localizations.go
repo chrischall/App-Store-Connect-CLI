@@ -426,6 +426,9 @@ func UploadPrevalidatedVersionLocalizationsWithWarnings(ctx context.Context, cli
 		existingByLocale[item.Attributes.Locale] = item.ID
 		existingItems[item.Attributes.Locale] = item
 	}
+	if err := validateVersionLocalizationCreates(valuesByLocale, existingByLocale); err != nil {
+		return nil, nil, newLocalizationInputError(err)
+	}
 
 	mode := SubmitReadinessCreateModeApplied
 	if dryRun {
@@ -528,6 +531,9 @@ func UploadAppInfoLocalizations(ctx context.Context, client appInfoLocalizationC
 		}
 		existingByLocale[item.Attributes.Locale] = item.ID
 		existingItems[item.Attributes.Locale] = item
+	}
+	if err := validateAppInfoLocalizationCreates(valuesByLocale, existingByLocale); err != nil {
+		return nil, newLocalizationInputError(err)
 	}
 
 	return uploadLocalizationValues(valuesByLocale, existingByLocale, dryRun, func(locale string, values map[string]string, existingID string) (asc.LocalizationUploadLocaleResult, error) {
@@ -730,8 +736,33 @@ func validateLocalizationValuesForBatch(locale string, values map[string]string)
 	if len(values) == 0 {
 		return fmt.Errorf("no localization values for locale %q", locale)
 	}
-	if !hasNonEmptyLocalizationValues(values) {
-		return fmt.Errorf("localization values for locale %q are empty", locale)
+	return nil
+}
+
+func validateVersionLocalizationCreates(valuesByLocale map[string]map[string]string, existing map[string]string) error {
+	locales := make([]string, 0, len(valuesByLocale))
+	for locale := range valuesByLocale {
+		locales = append(locales, locale)
+	}
+	sort.Strings(locales)
+	for _, locale := range locales {
+		if existing[locale] == "" && !hasNonEmptyLocalizationValues(valuesByLocale[locale]) {
+			return fmt.Errorf("cannot create version localization %q without a non-empty value", locale)
+		}
+	}
+	return nil
+}
+
+func validateAppInfoLocalizationCreates(valuesByLocale map[string]map[string]string, existing map[string]string) error {
+	locales := make([]string, 0, len(valuesByLocale))
+	for locale := range valuesByLocale {
+		locales = append(locales, locale)
+	}
+	sort.Strings(locales)
+	for _, locale := range locales {
+		if existing[locale] == "" && strings.TrimSpace(valuesByLocale[locale]["name"]) == "" {
+			return fmt.Errorf("cannot create app-info localization %q without a non-empty name", locale)
+		}
 	}
 	return nil
 }

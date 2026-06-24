@@ -552,7 +552,7 @@ func TestLocalizationUploadCommandsRejectLateEmptyLocaleBeforeAuth(t *testing.T)
 	if err := os.WriteFile(filepath.Join(dir, "en-US.strings"), []byte("\"description\" = \"Valid\";\n"), 0o644); err != nil {
 		t.Fatalf("write valid locale: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "fr-FR.strings"), []byte("\"promotionalText\" = \"\";\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "fr-FR.strings"), []byte("// intentionally empty\n"), 0o644); err != nil {
 		t.Fatalf("write empty locale: %v", err)
 	}
 	originalTransport := http.DefaultTransport
@@ -573,7 +573,7 @@ func TestLocalizationUploadCommandsRejectLateEmptyLocaleBeforeAuth(t *testing.T)
 				t.Fatalf("expected exit %d for %v, got %d", cmd.ExitUsage, args, code)
 			}
 		})
-		if stdout != "" || !strings.Contains(stderr, `localization values for locale "fr-FR" are empty`) {
+		if stdout != "" || !strings.Contains(stderr, `no localization values for locale "fr-FR"`) {
 			t.Fatalf("unexpected validation output for %v: stdout=%q stderr=%q", args, stdout, stderr)
 		}
 	}

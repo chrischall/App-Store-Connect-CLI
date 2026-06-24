@@ -405,6 +405,7 @@ func TestGetApps_RetriesTransientServerErrors(t *testing.T) {
 		name   string
 		status int
 	}{
+		{name: "request timeout", status: http.StatusRequestTimeout},
 		{name: "internal server error", status: http.StatusInternalServerError},
 		{name: "bad gateway", status: http.StatusBadGateway},
 		{name: "gateway timeout", status: http.StatusGatewayTimeout},
@@ -8288,7 +8289,7 @@ func TestCreateSubscriptionPriceWithPlanType(t *testing.T) {
 	}
 }
 
-func TestCreateSubscriptionPrice_DoesNotReplayUnexpectedServerError(t *testing.T) {
+func TestCreateSubscriptionPrice_DoesNotReplayRequestTimeout(t *testing.T) {
 	t.Setenv("ASC_MAX_RETRIES", "2")
 	t.Setenv("ASC_BASE_DELAY", "1ms")
 	t.Setenv("ASC_MAX_DELAY", "2ms")
@@ -8313,7 +8314,7 @@ func TestCreateSubscriptionPrice_DoesNotReplayUnexpectedServerError(t *testing.T
 				}
 				assertAuthorized(t, req)
 
-				return jsonResponse(http.StatusInternalServerError, `{"errors":[{"status":"500","code":"UNEXPECTED_ERROR","title":"An unexpected error occurred.","detail":"An unexpected error occurred on the server side."}]}`), nil
+				return jsonResponse(http.StatusRequestTimeout, `{"errors":[{"status":"408","code":"REQUEST_TIMEOUT","title":"Request timeout","detail":"The request may have completed."}]}`), nil
 			}),
 		},
 		keyID:      "KEY123",

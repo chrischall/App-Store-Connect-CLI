@@ -306,13 +306,26 @@ func TestUploadVersionLocalizations_PreflightsAllLocalesBeforeFetch(t *testing.T
 	client := &stubVersionLocalizationClient{}
 	_, err := UploadVersionLocalizations(context.Background(), client, "version-id", map[string]map[string]string{
 		"en-US": {"description": "Valid"},
-		"fr-FR": {"promotionalText": ""},
+		"fr-FR": {},
 	}, false)
-	if err == nil || !strings.Contains(err.Error(), `locale "fr-FR" are empty`) {
+	if err == nil || !strings.Contains(err.Error(), `no localization values for locale "fr-FR"`) {
 		t.Fatalf("expected empty-locale validation error, got %v", err)
 	}
 	if client.getCalls != 0 || len(client.createCalls) != 0 || len(client.updateCalls) != 0 {
 		t.Fatalf("expected no requests before whole-batch validation, gets=%d creates=%d updates=%d", client.getCalls, len(client.createCalls), len(client.updateCalls))
+	}
+}
+
+func TestUploadVersionLocalizations_PreflightsEmptyCreateAfterSnapshot(t *testing.T) {
+	client := &stubVersionLocalizationClient{getResp: &asc.AppStoreVersionLocalizationsResponse{Data: []asc.Resource[asc.AppStoreVersionLocalizationAttributes]{}}}
+	_, err := UploadVersionLocalizations(context.Background(), client, "version-id", map[string]map[string]string{
+		"fr-FR": {"promotionalText": ""},
+	}, false)
+	if err == nil || !strings.Contains(err.Error(), `cannot create version localization "fr-FR"`) {
+		t.Fatalf("expected remote-aware create validation, got %v", err)
+	}
+	if client.getCalls != 1 || len(client.createCalls) != 0 {
+		t.Fatalf("expected one snapshot and no mutation, gets=%d creates=%d", client.getCalls, len(client.createCalls))
 	}
 }
 
@@ -347,7 +360,7 @@ func TestUploadVersionLocalizations_PreservesExplicitEmptyUpdateField(t *testing
 		}},
 	}
 	values := map[string]map[string]string{
-		"en-US": {"description": "New", "promotionalText": ""},
+		"en-US": {"promotionalText": ""},
 	}
 	results, err := UploadVersionLocalizations(context.Background(), client, "version-id", values, false)
 	if err != nil {
@@ -362,12 +375,34 @@ func TestUploadVersionLocalizations_PreservesExplicitEmptyUpdateField(t *testing
 
 	client = &stubVersionLocalizationClient{
 		getResp: &asc.AppStoreVersionLocalizationsResponse{Data: []asc.Resource[asc.AppStoreVersionLocalizationAttributes]{
-			{ID: "loc-id", Attributes: asc.AppStoreVersionLocalizationAttributes{Locale: "en-US", Description: "New", PromotionalText: ""}},
+			{ID: "loc-id", Attributes: asc.AppStoreVersionLocalizationAttributes{Locale: "en-US", Description: "Old", PromotionalText: ""}},
 		}},
 	}
 	results, err = UploadVersionLocalizations(context.Background(), client, "version-id", values, false)
 	if err != nil || len(results) != 1 || results[0].Action != "skip" || len(client.updateFieldsCalls) != 0 {
 		t.Fatalf("expected identical rerun skip, results=%+v fields=%+v err=%v", results, client.updateFieldsCalls, err)
+	}
+}
+
+func TestUploadAppInfoLocalizations_ClearsOnlySuppliedFieldAndRerunSkips(t *testing.T) {
+	values := map[string]map[string]string{"en-US": {"subtitle": ""}}
+	client := &stubAppInfoLocalizationClient{getResp: &asc.AppInfoLocalizationsResponse{Data: []asc.Resource[asc.AppInfoLocalizationAttributes]{
+		{ID: "loc-id", Attributes: asc.AppInfoLocalizationAttributes{Locale: "en-US", Name: "Name", Subtitle: "Old subtitle"}},
+	}}}
+	results, err := UploadAppInfoLocalizations(context.Background(), client, "app-info-id", values, false)
+	if err != nil || len(results) != 1 || len(client.updateCalls) != 1 {
+		t.Fatalf("expected clear-only app-info update, results=%+v updates=%+v err=%v", results, client.updateCalls, err)
+	}
+	if value, ok := client.updateCalls[0]["subtitle"]; !ok || value != "" {
+		t.Fatalf("expected explicit empty subtitle field: %+v", client.updateCalls[0])
+	}
+
+	client = &stubAppInfoLocalizationClient{getResp: &asc.AppInfoLocalizationsResponse{Data: []asc.Resource[asc.AppInfoLocalizationAttributes]{
+		{ID: "loc-id", Attributes: asc.AppInfoLocalizationAttributes{Locale: "en-US", Name: "Name", Subtitle: ""}},
+	}}}
+	results, err = UploadAppInfoLocalizations(context.Background(), client, "app-info-id", values, false)
+	if err != nil || len(results) != 1 || results[0].Action != "skip" || len(client.updateCalls) != 0 {
+		t.Fatalf("expected clear-only app-info rerun skip, results=%+v updates=%+v err=%v", results, client.updateCalls, err)
 	}
 }
 

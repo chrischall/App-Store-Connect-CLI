@@ -473,6 +473,9 @@ Examples:
 				}
 				results, warnings, err := shared.UploadPrevalidatedVersionLocalizationsWithWarnings(ctx, client, strings.TrimSpace(*versionID), valuesByLocale, *dryRun, submitOpts)
 				if err != nil && len(results) == 0 {
+					if shared.IsLocalizationInputError(err) {
+						return shared.UsageError(err.Error())
+					}
 					return fmt.Errorf("localizations upload: %w", err)
 				}
 				uploadErr := err
@@ -531,6 +534,9 @@ Examples:
 
 				results, err := shared.UploadAppInfoLocalizations(ctx, client, appInfo, valuesByLocale, *dryRun)
 				if err != nil && len(results) == 0 {
+					if shared.IsLocalizationInputError(err) {
+						return shared.UsageError(err.Error())
+					}
 					return fmt.Errorf("localizations upload: %w", err)
 				}
 				uploadErr := err

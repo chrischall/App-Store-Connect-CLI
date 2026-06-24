@@ -280,7 +280,8 @@ func isTransientTransportError(err error) bool {
 
 func isRetryableHTTPStatus(statusCode int) bool {
 	switch statusCode {
-	case http.StatusTooManyRequests,
+	case http.StatusRequestTimeout,
+		http.StatusTooManyRequests,
 		http.StatusInternalServerError,
 		http.StatusBadGateway,
 		http.StatusServiceUnavailable,
@@ -327,6 +328,8 @@ func shouldLimitMutatingMethod(method string) bool {
 func buildRetryableError(statusCode int, retryAfter time.Duration, respBody []byte) error {
 	base := "API request failed"
 	switch statusCode {
+	case http.StatusRequestTimeout:
+		base = "App Store Connect request timeout"
 	case http.StatusTooManyRequests:
 		base = "rate limited by App Store Connect"
 	case http.StatusInternalServerError:
