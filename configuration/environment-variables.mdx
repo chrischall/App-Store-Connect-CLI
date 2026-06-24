@@ -114,12 +114,14 @@ These variables configure default values for apps, vendors, and other resources.
 
 ## Timeout variables
 
-Configure request and upload timeouts.
+Configure request and upload timeouts. These values normally apply to each HTTP request, not to the full runtime of a multi-request command.
+
+For `subscriptions offers introductory create`, an explicit request timeout also bounds the complete create operation, including subscription lookup and all-territory workflows. Without an override, the create operation uses a 5-minute deadline while each request keeps the standard request timeout.
 
 <ParamField path="ASC_TIMEOUT" type="string">
   Request timeout (e.g., `90s`, `2m`, `120s`)
 
-  Default: `90s`
+  Default: `30s`
 </ParamField>
 
 <ParamField path="ASC_TIMEOUT_SECONDS" type="number">
@@ -131,7 +133,7 @@ Configure request and upload timeouts.
 <ParamField path="ASC_UPLOAD_TIMEOUT" type="string">
   Upload timeout for large files (e.g., `60s`, `5m`)
 
-  Default: `60s`
+  Default: `5m`
 </ParamField>
 
 <ParamField path="ASC_UPLOAD_TIMEOUT_SECONDS" type="number">
