@@ -40,6 +40,7 @@ type SubscriptionGroupLocalizationsOption func(*subscriptionGroupLocalizationsQu
 
 type subscriptionLocalizationsQuery struct {
 	listQuery
+	fields []string
 }
 
 type subscriptionImagesQuery struct {
@@ -91,6 +92,7 @@ type subscriptionPricesQuery struct {
 
 type subscriptionGroupLocalizationsQuery struct {
 	listQuery
+	fields []string
 }
 
 // WithSubscriptionLocalizationsLimit sets the max number of localizations to return.
@@ -108,6 +110,13 @@ func WithSubscriptionLocalizationsNextURL(next string) SubscriptionLocalizations
 		if strings.TrimSpace(next) != "" {
 			q.nextURL = strings.TrimSpace(next)
 		}
+	}
+}
+
+// WithSubscriptionLocalizationsFields sets fields for returned subscription localizations.
+func WithSubscriptionLocalizationsFields(fields []string) SubscriptionLocalizationsOption {
+	return func(q *subscriptionLocalizationsQuery) {
+		q.fields = normalizeList(fields)
 	}
 }
 
@@ -374,8 +383,16 @@ func WithSubscriptionGroupLocalizationsNextURL(next string) SubscriptionGroupLoc
 	}
 }
 
+// WithSubscriptionGroupLocalizationsFields sets fields for returned subscription group localizations.
+func WithSubscriptionGroupLocalizationsFields(fields []string) SubscriptionGroupLocalizationsOption {
+	return func(q *subscriptionGroupLocalizationsQuery) {
+		q.fields = normalizeList(fields)
+	}
+}
+
 func buildSubscriptionLocalizationsQuery(query *subscriptionLocalizationsQuery) string {
 	values := url.Values{}
+	addCSV(values, "fields[subscriptionLocalizations]", query.fields)
 	addLimit(values, query.limit)
 	return values.Encode()
 }
@@ -453,6 +470,7 @@ func buildSubscriptionPricesQuery(query *subscriptionPricesQuery) string {
 
 func buildSubscriptionGroupLocalizationsQuery(query *subscriptionGroupLocalizationsQuery) string {
 	values := url.Values{}
+	addCSV(values, "fields[subscriptionGroupLocalizations]", query.fields)
 	addLimit(values, query.limit)
 	return values.Encode()
 }
