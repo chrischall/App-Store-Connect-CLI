@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/peterbourgon/ff/v3/ffcli"
+	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/asc"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/shared"
 )
 
@@ -75,6 +76,9 @@ Examples:
 			resp, err := client.GetSubscriptionAppStoreReviewScreenshotForSubscription(requestCtx, id)
 			if err != nil {
 				return fmt.Errorf("subscriptions app-store-review-screenshot get: failed to fetch: %w", err)
+			}
+			if resp == nil || strings.TrimSpace(resp.Data.ID) == "" {
+				return fmt.Errorf("subscriptions app-store-review-screenshot get: no App Store review screenshot found for subscription %q: %w", id, asc.ErrNotFound)
 			}
 
 			return shared.PrintOutput(resp, *output.Output, *output.Pretty)
