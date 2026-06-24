@@ -506,8 +506,7 @@ func (index *subscriptionPriceImportStateIndex) matches(target subscriptionPrice
 	selectedStart := time.Time{}
 	for _, state := range index.states {
 		if state.territoryID != targetTerritory ||
-			state.planType != target.planType ||
-			(target.preserveSet && state.preserveCurrentPrice != target.preserveCurrentPrice) {
+			state.planType != target.planType {
 			continue
 		}
 		start := time.Time{}
@@ -525,7 +524,9 @@ func (index *subscriptionPriceImportStateIndex) matches(target subscriptionPrice
 			selectedStart = start
 		}
 	}
-	return selected != nil && selected.pricePointID == target.pricePointID
+	return selected != nil &&
+		selected.pricePointID == target.pricePointID &&
+		(!target.preserveSet || selected.preserveCurrentPrice == target.preserveCurrentPrice)
 }
 
 func (index *subscriptionPriceImportStateIndex) add(target subscriptionPriceImportResolvedRow) {
