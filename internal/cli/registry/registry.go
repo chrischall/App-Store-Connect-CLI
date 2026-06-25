@@ -41,6 +41,7 @@ import (
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/install"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/localizations"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/marketplace"
+	mcpcmd "github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/mcp"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/merchantids"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/metadata"
 	"github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/migrate"
@@ -181,6 +182,7 @@ func Subcommands(version string) []*ffcli.Command {
 		schema.SchemaCommand(),
 		telemetrycmd.TelemetryCommand(),
 		searchcmd.SearchCommand(func() []*ffcli.Command { return subs }),
+		mcpcmd.MCPCommand(func() []*ffcli.Command { return subs }, version),
 		snitch.SnitchCommand(version),
 		VersionCommand(version),
 	}

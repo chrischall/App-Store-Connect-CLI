@@ -152,6 +152,7 @@
               "commands/xcode-cloud",
               "commands/notify",
               "commands/migrate",
+              "commands/mcp",
               "commands/completion",
               "commands/telemetry"
             ]

@@ -145,6 +145,10 @@ asc <subcommand> [flags]
 - `schema` - Inspect App Store Connect API endpoint schemas at runtime.
 - `telemetry` - Manage CLI telemetry settings.
 
+### Additional
+
+- `mcp` - Run a Model Context Protocol (MCP) stdio server exposing asc commands as tools.
+
 ## Scripting Tips
 
 - Output defaults are TTY-aware: interactive terminals default to `table`, while piped/non-interactive output defaults to minified `json`.
