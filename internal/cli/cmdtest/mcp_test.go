@@ -6,7 +6,49 @@ import (
 	"io"
 	"strings"
 	"testing"
+
+	mcpcmd "github.com/rudrankriyam/App-Store-Connect-CLI/internal/cli/mcp"
 )
+
+// TestMCPSuiteServicesExistInLiveTree guards against suite definitions drifting
+// from the real command surface: every service named in every suite must be a
+// real service (top-level command group) in the live tree.
+func TestMCPSuiteServicesExistInLiveTree(t *testing.T) {
+	root := RootCommand("1.2.3")
+	root.FlagSet.SetOutput(io.Discard)
+
+	stdout, _ := captureOutput(t, func() {
+		if err := root.Parse([]string{"mcp", "--allow-tool", "all", "--allow-write", "--list-tools"}); err != nil {
+			t.Fatalf("parse error: %v", err)
+		}
+		if err := root.Run(context.Background()); err != nil {
+			t.Fatalf("run error: %v", err)
+		}
+	})
+	var payload struct {
+		Tools []struct {
+			Service string `json:"service"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	// Build the set of real services, normalized (hyphens -> underscores) to
+	// match how suites store service tokens.
+	realServices := map[string]bool{}
+	for _, tl := range payload.Tools {
+		realServices[strings.ReplaceAll(tl.Service, "-", "_")] = true
+	}
+
+	for _, suite := range mcpcmd.SuiteNames() {
+		for _, svc := range mcpcmd.SuiteServices(suite) {
+			if !realServices[svc] {
+				t.Errorf("suite %q references unknown service %q", suite, svc)
+			}
+		}
+	}
+}
 
 // TestMCPListToolsReadOnlyDefault exercises the real command tree through the
 // `asc mcp --list-tools` path and asserts the read-only default surface.
