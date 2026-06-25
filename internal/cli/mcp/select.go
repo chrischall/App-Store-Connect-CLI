@@ -6,10 +6,13 @@ import (
 )
 
 // Selection captures the access-control configuration for a server: which
-// tool selectors are allowed and whether write tools are permitted.
+// tool selectors and suites are allowed and whether write tools are permitted.
 type Selection struct {
-	// Selectors is the parsed --allow-tool list. Empty means "all read tools".
+	// Selectors is the parsed --allow-tool list (services, globs, exact names,
+	// read/write/all). Empty (with no Suites) means "all read tools".
 	Selectors []string
+	// Suites is the parsed --tool-suite list of named service groups.
+	Suites []string
 	// AllowWrite mirrors --allow-write; required to expose any write tool.
 	AllowWrite bool
 }
@@ -37,14 +40,17 @@ func normalizeSelector(sel string) string {
 	return strings.ReplaceAll(strings.ToLower(strings.TrimSpace(sel)), ".", "_")
 }
 
-// matchSelector reports whether a single selector matches the tool. Supported
-// selector forms:
+// matchSelector reports whether a single --allow-tool selector matches the
+// tool. Supported selector forms:
 //
-//   - / all          -> every tool
-//     read         / write        -> tools of that risk class
-//     builds                      -> the "builds" service (any tool under it)
-//     builds_*     / builds.*     -> glob over the tool name
-//     builds_list  / builds.list  -> an exact tool name
+//   - / all                     -> every tool
+//     read         / write         -> tools of that risk class
+//     builds                       -> the "builds" service (any tool under it)
+//     builds_*     / builds.*      -> glob over the tool name
+//     builds_list  / builds.list   -> an exact tool name
+//
+// Named suites are selected with the separate --tool-suite flag (see suites.go),
+// so service names like "analytics" here always mean the service, never a suite.
 func matchSelector(sel string, t Tool) bool {
 	s := normalizeSelector(sel)
 	switch s {
@@ -77,18 +83,35 @@ func matchSelector(sel string, t Tool) bool {
 	return s == service
 }
 
+// matchSuite reports whether a --tool-suite name includes the tool's service.
+// Unknown suite names match nothing.
+func matchSuite(name string, t Tool) bool {
+	set := suiteServices(normalizeSelector(name))
+	if set == nil {
+		return false
+	}
+	service := strings.ToLower(strings.ReplaceAll(t.Service, "-", "_"))
+	_, ok := set[service]
+	return ok
+}
+
 // allowed reports whether a tool is exposed under this selection. Write tools
-// additionally require AllowWrite. An empty selector list defaults to all
-// read tools.
+// additionally require AllowWrite. When neither selectors nor suites are
+// configured, the default surface is all read tools.
 func (sel Selection) allowed(t Tool) bool {
 	if t.Risk == RiskWrite && !sel.AllowWrite {
 		return false
 	}
-	if len(sel.Selectors) == 0 {
+	if len(sel.Selectors) == 0 && len(sel.Suites) == 0 {
 		return t.Risk == RiskRead
 	}
 	for _, s := range sel.Selectors {
 		if matchSelector(s, t) {
+			return true
+		}
+	}
+	for _, suite := range sel.Suites {
+		if matchSuite(suite, t) {
 			return true
 		}
 	}

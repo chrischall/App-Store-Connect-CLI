@@ -97,6 +97,46 @@ mutating) based on the command verb. Safety-first defaults apply:
 Dotted selectors (`builds.list`, `apps.*`) are accepted and behave the same as
 their underscore equivalents.
 
+### Suites
+
+Suites are named, cross-cutting groups of services so an agent can be scoped to
+a job (e.g. "developer" or "billing") without listing every service. Select
+them with the dedicated `--tool-suite` flag. `--tool-suite` and `--allow-tool`
+are additive — a tool is exposed if either matches.
+
+```bash  theme={null}
+# Scope an agent to developer + billing tools (read-only)
+asc mcp --tool-suite 'developer,billing'
+
+# Developer suite with write access
+asc mcp --allow-write --tool-suite developer
+
+# Combine a suite with an extra exact tool
+asc mcp --tool-suite developer --allow-tool apps_get
+
+# See the full suite -> services mapping
+asc mcp --list-suites
+```
+
+| Suite | Services |
+| --- | --- |
+| `developer` | builds, build-bundles, build-localizations, testflight, xcode, xcode-cloud, profiles, certificates, bundle-ids, devices, capabilities, signing, notarization, encryption, background-assets, app-clips, android-ios-mapping, workflow |
+| `release` | apps, app-setup, app-tags, versions, submit, publish, release, release-notes, review, reviews, status, validate, localizations, metadata, screenshots, video-previews, product-pages, categories, age-rating, accessibility, nominations, routing-coverage, eula, app-events |
+| `billing` | finance, pricing, agreements, subscriptions, iap, storekit, merchant-ids, sandbox |
+| `analytics` | analytics, insights, performance, ads |
+| `admin` | users, actors, account, auth, webhooks, pass-type-ids, telemetry, migrate, notify |
+| `distribution` | marketplace, alternative-distribution, pre-orders |
+| `gamecenter` | game-center |
+
+<Note>
+  Suites live on their own `--tool-suite` flag, so they never collide with
+  service names: `--allow-tool analytics` is the analytics **service**, while
+  `--tool-suite analytics` is the **suite** (analytics + insights + performance
+  + ads). Meta/CLI services (`docs`, `diff`, `schema`, `search`, `completion`,
+  …) are not part of any suite and remain reachable via `--allow-tool` by name
+  or `all`.
+</Note>
+
 ## Structured results
 
 Every `tools/call` returns a structured JSON result (also rendered as text
@@ -125,11 +165,13 @@ content):
 | Flag | Default | Purpose |
 | --- | --- | --- |
 | `--allow-tool` | `""` (all read tools) | Comma-separated tool selectors to expose. |
+| `--tool-suite` | `""` | Comma-separated named suites to expose (additive with `--allow-tool`). |
 | `--allow-write` | `false` | Required to expose any write tool. |
 | `--timeout-seconds` | `60` | Per-tool execution timeout (`0` disables). |
 | `--max-output-bytes` | `102400` | Cap on stdout/stderr returned per call (`0` disables). |
 | `--dry-run` | `false` | Resolve and return the `asc` command line for each call without executing. |
 | `--list-tools` | `false` | Print the resolved tool set as JSON and exit instead of serving. |
+| `--list-suites` | `false` | Print the available suites and their services as JSON and exit. |
 
 <Tip>
   Pair `--dry-run` with your MCP client during setup to confirm exactly which
