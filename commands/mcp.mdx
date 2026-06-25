@@ -1,0 +1,137 @@
+# mcp
+
+> Run a Model Context Protocol (MCP) stdio server that exposes the `asc` command surface as typed tools for agents.
+
+The `asc mcp` command turns the CLI into an [MCP](https://modelcontextprotocol.io)
+server. Each leaf `asc` command is registered as one typed tool that maps to a
+single `asc` operation. Agents connect over stdio, list the available tools,
+and call them with structured arguments instead of shelling out to a generic
+command bridge.
+
+This mirrors the design of `gogcli`'s `gog mcp` server: read-only tools are
+exposed by default, write (mutating) tools stay hidden unless you explicitly
+allow them, and every call returns a structured result.
+
+## Quick start
+
+```bash  theme={null}
+# Read-only server (safe default): every read tool, no write tools
+asc mcp
+
+# Expose Builds read + write tools
+asc mcp --allow-write --allow-tool 'builds_*'
+
+# Inspect the resolved tool set without serving
+asc mcp --allow-tool all --allow-write --list-tools
+```
+
+Configure your MCP client to launch `asc mcp` over stdio. For example, a Claude
+Desktop / generic MCP client config:
+
+```json  theme={null}
+{
+  "mcpServers": {
+    "asc": {
+      "command": "asc",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+To allow specific write operations, add the flags to `args`:
+
+```json  theme={null}
+{
+  "mcpServers": {
+    "asc": {
+      "command": "asc",
+      "args": ["mcp", "--allow-write", "--allow-tool", "builds_*,testflight_*"]
+    }
+  }
+}
+```
+
+## Tool naming
+
+Tool names are derived from the command path: the path tokens are joined with
+`_` and any hyphen inside a token is normalized to `_`.
+
+| Command | Tool name | Risk |
+| --- | --- | --- |
+| `asc builds list` | `builds_list` | read |
+| `asc apps get` | `apps_get` | read |
+| `asc builds expire` | `builds_expire` | write |
+| `asc age-rating set` | `age_rating_set` | write |
+
+The first path token is the tool's **service** (`builds`, `apps`, …). Each
+tool's input schema is generated from the command's flags (bool flags become
+`boolean`, everything else `string`) plus a generic `args` array for positional
+arguments.
+
+## Read vs. write access control
+
+Tools are classified as **read** (non-mutating) or **write** (potentially
+mutating) based on the command verb. Safety-first defaults apply:
+
+- **Read tools are exposed by default.**
+- **Write tools are hidden** unless you both match them with `--allow-tool`
+  **and** pass `--allow-write`.
+- Commands whose verb cannot be confidently classified default to **write** so
+  they stay hidden until explicitly allowed.
+
+### `--allow-tool` selectors
+
+`--allow-tool` takes a comma-separated list of selectors. An empty value
+(the default) exposes all read tools.
+
+| Selector | Matches |
+| --- | --- |
+| `read` | all read-only tools (default) |
+| `write` | all write tools (still requires `--allow-write`) |
+| `all`, `*` | every tool |
+| `builds` | every tool under the `builds` service |
+| `builds_*` | glob over tool names |
+| `builds_list` | an exact tool name |
+
+Dotted selectors (`builds.list`, `apps.*`) are accepted and behave the same as
+their underscore equivalents.
+
+## Structured results
+
+Every `tools/call` returns a structured JSON result (also rendered as text
+content):
+
+```json  theme={null}
+{
+  "tool": "builds_list",
+  "service": "builds",
+  "risk": "read",
+  "command": "asc builds list --app 123 --limit 5 --output json",
+  "exit_code": 0,
+  "stdout": { "data": [] },
+  "stderr": "",
+  "truncated": false
+}
+```
+
+- `stdout` is parsed JSON when the command emits valid JSON; otherwise it is a
+  (possibly truncated) string.
+- `isError` is set on the MCP response whenever `exit_code` is non-zero.
+- `truncated` / `timed_out` flag output capping and timeouts.
+
+## Flags
+
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `--allow-tool` | `""` (all read tools) | Comma-separated tool selectors to expose. |
+| `--allow-write` | `false` | Required to expose any write tool. |
+| `--timeout-seconds` | `60` | Per-tool execution timeout (`0` disables). |
+| `--max-output-bytes` | `102400` | Cap on stdout/stderr returned per call (`0` disables). |
+| `--dry-run` | `false` | Resolve and return the `asc` command line for each call without executing. |
+| `--list-tools` | `false` | Print the resolved tool set as JSON and exit instead of serving. |
+
+<Tip>
+  Pair `--dry-run` with your MCP client during setup to confirm exactly which
+  `asc` invocation each tool would run before granting write access.
+</Tip>
